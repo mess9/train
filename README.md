@@ -25,7 +25,9 @@
 cli/build/install/gym/bin/gym info
 ```
 
-Сборка сервера сама собирает `app` и кладёт его в `META-INF/resources`.
+Сборка сервера сама собирает `app` и кладёт его в `META-INF/resources`. При запущенном
+`quarkusDev` правка приложения — `./gradlew :server:appDist`, затем две перезагрузки страницы:
+первая ставит новый service worker, вторая берёт новую сборку.
 
 CLI берёт настройки из флага `--url`, переменных окружения или файла `~/.config/gym/config`
 (другой путь — `GYM_CONFIG`), в этом порядке:

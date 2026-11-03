@@ -5,6 +5,7 @@ import io.restassured.RestAssured.given
 import org.hamcrest.CoreMatchers.containsString
 import org.hamcrest.CoreMatchers.equalTo
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Assertions.assertNotNull
 
 @QuarkusTest
 class InfoResourceTest {
@@ -15,16 +16,23 @@ class InfoResourceTest {
             .body("name", equalTo("train"))
     }
 
+    /** `app.js` в сборке с хешем в имени (`server:appDist`) — берём его из `index.html`. */
+    private fun appJs() = given().get("/").then().statusCode(200).extract().asString()
+        .let { Regex("""app\.[0-9a-f]{12}\.js""").find(it)?.value }
+
     @Test
     fun appIsServed() {
-        given().get("/").then()
+        val js = appJs()
+        assertNotNull(js, "в index.html нет app.<хеш>.js")
+        given().get("/$js").then().statusCode(200)
+        given().get("/sw.js").then()
             .statusCode(200)
-            .body(containsString("app.js"))
+            .body(containsString(js))
     }
 
     @Test
     fun wasmIsCompressed() {
-        val wasm = given().get("/app.js").then().statusCode(200).extract().asString()
+        val wasm = given().get("/${appJs()}").then().statusCode(200).extract().asString()
             .let { Regex("""[0-9a-f]{20}\.wasm""").find(it)!!.value }
         given().header("Accept-Encoding", "gzip").get("/$wasm").then()
             .statusCode(200)

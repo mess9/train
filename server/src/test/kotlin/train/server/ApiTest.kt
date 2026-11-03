@@ -22,7 +22,12 @@ import train.core.SyncPut
 import train.core.Trash
 import train.core.Workout
 import train.core.WorkoutDetail
+import train.core.OP_ID_HEADER
+import train.core.TrainJson
 import train.core.newId
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Clock
@@ -287,6 +292,53 @@ class ApiTest {
         val unknown = put.copy(body = put.body.copy(blocks = put.body.blocks.map { b -> b.copy(items = b.items.map { it.copy(exerciseId = newId()) }) }))
         api.put<_, ApiError>("/api/plans/${newId()}", unknown, status = 400)
         assertEquals(400, api.spec().body("{\"date\": \"завтра\"}").put("/api/plans/${newId()}").statusCode)
+    }
+
+    /** `409` называет `opId` версии сервера: телефон узнаёт свою отправку, ответ на которую потерялся. */
+    @Test
+    fun conflictNamesServerOp() {
+        val api = newUser()
+        val m = Measurement(newId(), BODYWEIGHT, 80.0, "kg", Clock.System.now())
+        val op = newId()
+        api.put<_, Measurement>("/api/measurements/${m.id}", SyncPut(m, 0, op))
+        val r = api.spec().body(TrainJson.encodeToString(SyncPut.serializer(Measurement.serializer()), SyncPut(m.copy(value = 81.0), 0, newId())))
+            .put("/api/measurements/${m.id}")
+        assertEquals(409, r.statusCode)
+        assertEquals(op.toString(), r.header(OP_ID_HEADER))
+    }
+
+    /** Первые записи одного ID разом: одна создаёт, остальные — `409` или `404`, ничего не перезаписано. */
+    @Test
+    fun concurrentFirstPutsDoNotOverwrite() {
+        val a = newUser()
+        val b = newUser()
+        repeat(5) {
+            val m = Measurement(newId(), BODYWEIGHT, 80.0, "kg", Clock.System.now())
+            val start = CountDownLatch(1)
+            val pool = Executors.newFixedThreadPool(8)
+            val results = (0 until 8).map { i ->
+                val api = if (i % 2 == 0) a else b
+                val body = SyncPut(m.copy(value = 80.0 + i), 0, newId())
+                pool.submit<Pair<Int, Double>> {
+                    start.await()
+                    val r = api.spec().body(TrainJson.encodeToString(SyncPut.serializer(Measurement.serializer()), body))
+                        .put("/api/measurements/${m.id}")
+                    r.statusCode to body.data.value
+                }
+            }
+            start.countDown()
+            val codes = results.map { it.get(30, TimeUnit.SECONDS) }
+            pool.shutdown()
+
+            val won = codes.filter { it.first == 200 }
+            assertEquals(1, won.size, "$codes")
+            assertTrue(codes.all { it.first in setOf(200, 404, 409) }, "$codes")
+            val owner = if (codes.indexOf(won.single()) % 2 == 0) a else b
+            val stored = owner.get<Measurement>("/api/measurements/${m.id}")
+            assertEquals(1, stored.rev)
+            assertEquals(won.single().second, stored.value)
+            assertEquals(0, revisions(m.id))
+        }
     }
 
     private fun revisions(id: kotlin.uuid.Uuid) =

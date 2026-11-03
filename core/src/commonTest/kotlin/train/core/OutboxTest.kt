@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import kotlin.time.Instant
 
 class OutboxTest {
     private val press = exercise("Жим")
@@ -74,9 +75,12 @@ class OutboxTest {
 
     @Test
     fun outboxSurvivesStorage() {
-        val o = Outbox().put(w).put(set1)
+        // У замера своё поле `type` — дискриминатор полиморфной записи с ним не должен совпасть
+        val weight = Measurement(newId(), BODYWEIGHT, 82.9, "kg", Instant.parse("2026-11-03T10:00:00Z"))
+        val o = Outbox().put(w).put(set1).put(weight)
         val back = TrainJson.decodeFromString<Outbox>(TrainJson.encodeToString(o))
         assertEquals(o, back)
         assertTrue(back.pending[0].record is Workout)
+        assertTrue(back.pending[2].record is Measurement)
     }
 }

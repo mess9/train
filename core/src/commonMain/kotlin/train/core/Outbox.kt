@@ -3,9 +3,13 @@ package train.core
 import kotlinx.serialization.Serializable
 import kotlin.uuid.Uuid
 
-/** Неотправленное состояние записи. `record.rev` — версия сервера, от которой оно сделано. */
+/**
+ * Неотправленное состояние записи. `record.rev` — версия сервера, от которой оно сделано.
+ * [replaced] — `opId` прежних состояний той же записи с той же базовой версией: какое-то из них
+ * могло дойти до сервера, а ответ потеряться.
+ */
 @Serializable
-data class Pending(val record: SyncRecord, val opId: Uuid) {
+data class Pending(val record: SyncRecord, val opId: Uuid, val replaced: List<Uuid> = emptyList()) {
     val baseRev get() = record.rev
 }
 
@@ -28,8 +32,8 @@ data class Outbox(val pending: List<Pending> = emptyList()) {
     fun put(record: SyncRecord): Outbox {
         val i = pending.indexOfFirst { it.record.id == record.id }
         if (i < 0) return Outbox(pending + Pending(record, newId()))
-        val base = pending[i].record.rev
-        return replace(i, Pending(record.withRev(base), newId()))
+        val p = pending[i]
+        return replace(i, Pending(record.withRev(p.baseRev), newId(), p.replaced + p.opId))
     }
 
     /**
@@ -40,8 +44,12 @@ data class Outbox(val pending: List<Pending> = emptyList()) {
         val i = pending.indexOfFirst { it.record.id == server.id }
         if (i < 0) return this
         val p = pending[i]
-        return if (p.opId == opId) remove(i) else replace(i, p.copy(record = p.record.withRev(server.rev)))
+        return if (p.opId == opId) remove(i) else replace(i, Pending(p.record.withRev(server.rev), p.opId))
     }
+
+    /** Версия сервера с `opId` [serverOp] — прежнее состояние этой же записи из очереди. */
+    fun own(server: SyncRecord, serverOp: Uuid?): Boolean =
+        serverOp != null && pending.any { it.record.id == server.id && serverOp in it.replaced }
 
     /**
      * Сервер ответил `409` с текущим состоянием. Тренировка активна — побеждает телефон: та же

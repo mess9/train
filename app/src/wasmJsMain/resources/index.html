@@ -3,15 +3,90 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#121212">
+  <meta name="theme-color" content="#0F1012">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon-192.png">
   <title>Тренировки</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #121212; overflow: hidden; }
+    html, body { margin: 0; height: 100%; background: #0F1012; overflow: hidden; }
+    .gif { position: fixed; pointer-events: none; object-fit: contain; background: #F2F2F0; border-radius: 12px; display: none; }
   </style>
+  <script>
+    // Всё, что Compose не умеет сам: замок вкладки, wake lock, гифка поверх canvas, service worker.
+    // Kotlin вызывает функции window.bridge и читает строки — без колбэков через границу Wasm.
+    window.bridge = (() => {
+      // Ключ из ссылки `#key=…` — в localStorage, из адресной строки убрать
+      const m = location.hash.match(/[#&]key=([^&]+)/);
+      if (m) {
+        try { localStorage.setItem('key', decodeURIComponent(m[1])); } catch (e) {}
+        history.replaceState(null, '', location.pathname + location.search);
+      }
+
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
+      }
+
+      // Wake lock отпускается, когда вкладка уходит в фон, — берём заново при возврате
+      let wakeWanted = false, wakeLock = null;
+      async function requestWake() {
+        if (!wakeWanted || wakeLock || !('wakeLock' in navigator)) return;
+        try {
+          wakeLock = await navigator.wakeLock.request('screen');
+          wakeLock.addEventListener('release', () => wakeLock = null);
+        } catch (e) {}
+      }
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') requestWake();
+      });
+      function wake(on) {
+        wakeWanted = on;
+        if (on) requestWake();
+        else if (wakeLock) { wakeLock.release(); wakeLock = null; }
+      }
+
+      // Гифки: <img> с blob-адресом поверх canvas, положение задаёт Compose
+      const gifs = {};
+      function showGif(id, url, key, x, y, w, h) {
+        let g = gifs[id];
+        if (!g) {
+          g = gifs[id] = document.createElement('img');
+          g.className = 'gif';
+          document.body.appendChild(g);
+          fetch(url, { headers: { 'X-Api-Key': key } })
+            .then(r => r.ok ? r.blob() : null)
+            .then(b => { if (b && gifs[id] === g) g.src = URL.createObjectURL(b); })
+            .catch(() => {});
+        }
+        Object.assign(g.style, { display: 'block', left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
+      }
+      function hideGif(id) {
+        const g = gifs[id];
+        if (!g) return;
+        if (g.src) URL.revokeObjectURL(g.src);
+        g.remove();
+        delete gifs[id];
+      }
+
+      return { lock: '?', wake, showGif, hideGif };
+    })();
+
+    // Замок «одна вкладка — одна активная тренировка» берётся до старта приложения:
+    // вторая вкладка показывает заглушку и ничего не пишет в localStorage (ADR 0007).
+    // Ждём пару секунд, а не ifAvailable: при перезагрузке старый документ отпускает замок не мгновенно
+    (async () => {
+      window.bridge.lock = await new Promise(resolve => {
+        if (!navigator.locks) { resolve('held'); return; }
+        navigator.locks.request('active-workout', { signal: AbortSignal.timeout(2000) }, () => {
+          resolve('held');
+          return new Promise(() => {}); // держим, пока вкладка жива
+        }).catch(() => resolve('busy'));
+      });
+      const s = document.createElement('script');
+      s.src = 'app.js';
+      document.body.appendChild(s);
+    })();
+  </script>
 </head>
 <body>
-  <script src="app.js"></script>
 </body>
 </html>

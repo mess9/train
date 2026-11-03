@@ -1,7 +1,9 @@
 package train.core
 
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonClassDiscriminator
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -63,7 +65,12 @@ data class Profile(
     val vibration: Boolean = false,
 )
 
-/** Запись, которую телефон синхронизирует по ADR 0007: `rev` считает сервер. */
+/**
+ * Запись, которую телефон синхронизирует по ADR 0007: `rev` считает сервер.
+ * В очереди хранится полиморфно; дискриминатор не `type` — это поле есть у замера.
+ */
+@OptIn(ExperimentalSerializationApi::class)
+@JsonClassDiscriminator("kind")
 @Serializable
 sealed interface SyncRecord {
     val id: Uuid

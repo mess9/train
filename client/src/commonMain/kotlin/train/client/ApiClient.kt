@@ -26,6 +26,7 @@ import train.core.KeyCreate
 import train.core.KeyCreated
 import train.core.Me
 import train.core.Measurement
+import train.core.OP_ID_HEADER
 import train.core.Plan
 import train.core.PlanPut
 import train.core.Profile
@@ -47,8 +48,8 @@ class ApiException(val status: Int, message: String) : Exception(message)
 sealed interface PutResult<T> {
     data class Accepted<T>(val record: T) : PutResult<T>
 
-    /** `409`: у сервера другая версия — вот она. */
-    data class Conflict<T>(val current: T) : PutResult<T>
+    /** `409`: у сервера другая версия — вот она; [opId] — её операция, если сервер назвал. */
+    data class Conflict<T>(val current: T, val opId: Uuid? = null) : PutResult<T>
 }
 
 /**
@@ -155,7 +156,10 @@ class ApiClient(
     /** Запись с возможным `409`: тело конфликта — текущая версия у сервера. */
     private suspend inline fun <reified B, reified T> put(path: String, body: B): PutResult<T> {
         val r = request(HttpMethod.Put, path, encode(body))
-        if (r.status.value == 409) return PutResult.Conflict(TrainJson.decodeFromString(serializer<T>(), r.bodyAsText()))
+        if (r.status.value == 409) {
+            val op = r.headers[OP_ID_HEADER]?.let { runCatching { Uuid.parse(it) }.getOrNull() }
+            return PutResult.Conflict(TrainJson.decodeFromString(serializer<T>(), r.bodyAsText()), op)
+        }
         check(r)
         return PutResult.Accepted(TrainJson.decodeFromString(serializer<T>(), r.bodyAsText()))
     }
@@ -186,8 +190,9 @@ class ApiClient(
     private suspend fun check(r: HttpResponse) {
         val status = r.status.value
         if (status in 200..299) return
-        if (status in 300..399) {
-            // Cloudflare Access уводит на страницу входа: нужен сервисный токен или вход в браузере
+        if (status == 0 || status in 300..399) {
+            // Cloudflare Access уводит на страницу входа: нужен сервисный токен или вход в браузере.
+            // В браузере без перехода по редиректу fetch отдаёт статус 0 (opaqueredirect)
             throw ApiException(status, "редирект на ${r.headers[HttpHeaders.Location] ?: "?"} — нужен вход в Cloudflare Access")
         }
         val text = r.bodyAsText()

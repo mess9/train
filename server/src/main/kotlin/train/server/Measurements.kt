@@ -48,15 +48,14 @@ class MeasurementResource(
                 Owned(it.uuidReq("user_id"), Stored(it.measurement(), it.uuidReq("op_id")))
             }
         }
-        val row = read(true)
-        if (row != null && row.userId != user.id) throw notFound()
+        val load = { read(true)?.also { if (it.userId != user.id) throw notFound() }?.stored }
         // Ссылка на чужую или удалённую насовсем тренировку не нужна — замер остаётся сам по себе
         val workoutId = m.workoutId?.takeIf {
             db.one("select 1 from workout where id = ? and user_id = ?", it, user.id) { true } != null
         }
         val put = body.copy(data = m.copy(workoutId = workoutId))
 
-        return sync("measurement", Measurement.serializer(), put, row?.stored, db, { read(false)!!.stored.record }) { r, rev ->
+        return sync("measurement", Measurement.serializer(), put, load, db, { read(false)!!.stored.record }) { r, rev ->
             db.update(
                 """
                 insert into measurement (id, user_id, type, value, unit, measured_at, workout_id, received_at, rev, op_id, deleted)
@@ -64,6 +63,7 @@ class MeasurementResource(
                 on conflict (id) do update set type = excluded.type, value = excluded.value, unit = excluded.unit,
                   measured_at = excluded.measured_at, workout_id = excluded.workout_id, received_at = now(),
                   rev = excluded.rev, op_id = excluded.op_id, deleted = excluded.deleted
+                where measurement.rev = excluded.rev - 1 and measurement.user_id = excluded.user_id
                 """.trimIndent(),
                 r.id, user.id, r.type, r.value, r.unit, r.measuredAt, r.workoutId, rev, put.opId, r.deleted,
             )

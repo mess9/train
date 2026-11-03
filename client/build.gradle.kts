@@ -18,5 +18,10 @@ kotlin {
             api(project(":core"))
             api(libs.ktor.client.core)
         }
+        jvmTest.dependencies {
+            implementation(kotlin("test"))
+            implementation(libs.ktor.client.mock)
+            implementation(libs.coroutines.core)
+        }
     }
 }

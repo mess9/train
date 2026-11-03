@@ -54,30 +54,33 @@ class WorkoutResource(
     fun put(@PathParam("id") id: String, body: SyncPut<Workout>): RestResponse<Workout> {
         val workoutId = parseId(id)
         if (body.data.id != workoutId) throw badRequest("id в пути и в теле не совпадают")
-        val row = store.workoutRow(workoutId, forUpdate = true)
-        if (row != null && row.userId != user.id) throw notFound()
+        val load = {
+            store.workoutRow(workoutId, forUpdate = true)?.also { if (it.userId != user.id) throw notFound() }?.stored
+        }
         // План могли окончательно удалить, пока телефон был без сети, — тренировку всё равно принять
         val planId = body.data.planId?.takeIf { store.plan(user.id, it, forUpdate = true) != null }
         val put = body.copy(data = body.data.copy(planId = planId))
 
-        return sync("workout", Workout.serializer(), put, row?.stored, db, { store.workoutRow(workoutId)!!.stored.record }) { w, rev ->
-            db.update(
+        return sync("workout", Workout.serializer(), put, load, db, { store.workoutRow(workoutId)!!.stored.record }) { w, rev ->
+            val n = db.update(
                 """
                 insert into workout (id, user_id, plan_id, plan_version, started_at, finished_at, comment, layout, received_at, rev, op_id, deleted)
                 values (?, ?, ?, ?, ?, ?, ?, cast(? as jsonb), now(), ?, ?, ?)
                 on conflict (id) do update set plan_id = excluded.plan_id, plan_version = excluded.plan_version,
                   started_at = excluded.started_at, finished_at = excluded.finished_at, comment = excluded.comment,
                   layout = excluded.layout, received_at = now(), rev = excluded.rev, op_id = excluded.op_id, deleted = excluded.deleted
+                where workout.rev = excluded.rev - 1 and workout.user_id = excluded.user_id
                 """.trimIndent(),
                 w.id, user.id, w.planId, w.planVersion, w.startedAt, w.finishedAt, w.comment,
                 Json.of(WorkoutLayout.serializer(), w.layout), rev, put.opId, w.deleted,
             )
-            if (w.planId != null && !w.deleted) {
+            if (n > 0 && w.planId != null && !w.deleted) {
                 db.update(
                     "update plan set started_at = ?, started_version = ? where id = ? and started_at is null",
                     w.startedAt, w.planVersion, w.planId,
                 )
             }
+            n
         }
     }
 
@@ -97,10 +100,11 @@ class WorkoutResource(
                 Owned(it.uuidReq("user_id"), Stored(it.setFact(), it.uuidReq("op_id")))
             }
         }
-        val row = read(true)
-        if (row != null && (row.userId != user.id || row.stored.record.workoutId != workoutId)) throw notFound()
+        val load = {
+            read(true)?.also { if (it.userId != user.id || it.stored.record.workoutId != workoutId) throw notFound() }?.stored
+        }
 
-        return sync("set", SetFact.serializer(), body, row?.stored, db, { read(false)!!.stored.record }) { f, rev ->
+        return sync("set", SetFact.serializer(), body, load, db, { read(false)!!.stored.record }) { f, rev ->
             db.update(
                 """
                 insert into workout_set (id, workout_id, user_id, block_id, item_id, set_no, target_id, exercise_id, record_type, per_side,
@@ -111,6 +115,7 @@ class WorkoutResource(
                   per_side = excluded.per_side, weight = excluded.weight, reps = excluded.reps, extra_weight = excluded.extra_weight,
                   seconds = excluded.seconds, rating = excluded.rating, note = excluded.note, done = excluded.done,
                   done_at = excluded.done_at, received_at = now(), rev = excluded.rev, op_id = excluded.op_id, deleted = excluded.deleted
+                where workout_set.rev = excluded.rev - 1 and workout_set.user_id = excluded.user_id
                 """.trimIndent(),
                 f.id, f.workoutId, user.id, f.blockId, f.itemId, f.setNo, f.targetId, f.exerciseId, f.recordType, f.perSide,
                 f.weight, f.reps, f.extraWeight, f.seconds, f.rating, f.note, f.done, f.doneAt, rev, body.opId, f.deleted,
