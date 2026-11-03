@@ -1,0 +1,26 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "server",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "C:\\java\\my\\train\\gradlew.bat",
+        "-p",
+        "C:\\java\\my\\train",
+        ":server:quarkusDev"
+      ],
+      "port": 7313
+    },
+    {
+      "name": "spike",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "spike/serve.py",
+        "8080"
+      ],
+      "port": 8080
+    }
+  ]
+}

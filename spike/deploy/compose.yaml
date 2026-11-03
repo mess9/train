@@ -1,0 +1,25 @@
+# Временная проверка шага 0 на https://train.fil-lost.org: тот же serve.py, что локально.
+# На сервере — ~/services/docker/train-spike/, сборка и gif в app/ рядом.
+# Образ уже есть на сервере; HTTPS и сжатие wasm — на краю Cloudflare.
+name: train-spike
+
+services:
+  train-spike:
+    image: python:3.12-alpine3.22
+    container_name: train-spike
+    restart: unless-stopped
+    working_dir: /app
+    command: ["python", "-u", "serve.py", "8080"]
+    volumes:
+      - /home/mess9/services/docker/train-spike/app:/app:ro
+    networks:
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.train-spike.rule=Host(`train.fil-lost.org`)
+      - traefik.http.routers.train-spike.entrypoints=web
+      - traefik.http.services.train-spike.loadbalancer.server.port=8080
+
+networks:
+  proxy:
+    external: true

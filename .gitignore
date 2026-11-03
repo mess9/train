@@ -1,0 +1,9 @@
+.gradle/
+.kotlin/
+build/
+.idea/
+*.iml
+local.properties
+*.env
+!*.env.example
+.claude/settings.local.json

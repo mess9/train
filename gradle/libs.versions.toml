@@ -1,0 +1,46 @@
+[versions]
+kotlin = "2.4.21"
+compose = "1.12.2"
+quarkus = "3.40.1"
+ktor = "3.6.1"
+serialization = "1.12.0"
+coroutines = "1.11.0"
+clikt = "5.1.0"
+kotlinx-browser = "0.5.0"
+slf4j = "2.0.19"
+
+[libraries]
+serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
+coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+ktor-client-js = { module = "io.ktor:ktor-client-js", version.ref = "ktor" }
+ktor-client-java = { module = "io.ktor:ktor-client-java", version.ref = "ktor" }
+clikt = { module = "com.github.ajalt.clikt:clikt", version.ref = "clikt" }
+slf4j-nop = { module = "org.slf4j:slf4j-nop", version.ref = "slf4j" }
+kotlinx-browser = { module = "org.jetbrains.kotlinx:kotlinx-browser", version.ref = "kotlinx-browser" }
+
+compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose" }
+compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose" }
+compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose" }
+
+# Версии расширений Quarkus — из BOM
+quarkus-bom = { module = "io.quarkus.platform:quarkus-bom", version.ref = "quarkus" }
+quarkus-kotlin = { module = "io.quarkus:quarkus-kotlin" }
+quarkus-rest = { module = "io.quarkus:quarkus-rest" }
+quarkus-rest-kotlin-serialization = { module = "io.quarkus:quarkus-rest-kotlin-serialization" }
+quarkus-jdbc-postgresql = { module = "io.quarkus:quarkus-jdbc-postgresql" }
+quarkus-flyway = { module = "io.quarkus:quarkus-flyway" }
+flyway-postgresql = { module = "org.flywaydb:flyway-database-postgresql" }
+quarkus-smallrye-openapi = { module = "io.quarkus:quarkus-smallrye-openapi" }
+quarkus-smallrye-health = { module = "io.quarkus:quarkus-smallrye-health" }
+quarkus-junit = { module = "io.quarkus:quarkus-junit5" }
+rest-assured = { module = "io.rest-assured:rest-assured" }
+
+[plugins]
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+kotlin-allopen = { id = "org.jetbrains.kotlin.plugin.allopen", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+compose = { id = "org.jetbrains.compose", version.ref = "compose" }
+quarkus = { id = "io.quarkus", version.ref = "quarkus" }
