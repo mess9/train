@@ -5,18 +5,23 @@ quarkus = "3.40.1"
 ktor = "3.6.1"
 serialization = "1.12.0"
 coroutines = "1.11.0"
+datetime = "0.8.0"
 clikt = "5.1.0"
 kotlinx-browser = "0.5.0"
 slf4j = "2.0.19"
+qrcodegen = "1.8.0"
 
 [libraries]
 serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "datetime" }
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 ktor-client-js = { module = "io.ktor:ktor-client-js", version.ref = "ktor" }
 ktor-client-java = { module = "io.ktor:ktor-client-java", version.ref = "ktor" }
 clikt = { module = "com.github.ajalt.clikt:clikt", version.ref = "clikt" }
 slf4j-nop = { module = "org.slf4j:slf4j-nop", version.ref = "slf4j" }
+qrcodegen = { module = "io.nayuki:qrcodegen", version.ref = "qrcodegen" }
+ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
 kotlinx-browser = { module = "org.jetbrains.kotlinx:kotlinx-browser", version.ref = "kotlinx-browser" }
 
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose" }

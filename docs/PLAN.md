@@ -102,7 +102,7 @@ UI-код тот же (ADR 0003). Остальной план от этого н
 - `Passes` — текущий проход, следующая строка карточки, «проход закрыт» → какой отдых (DESIGN,
   экран тренировки).
 - Значения необязательны: неизвестное — `null`, не ноль.
-- `uuid7()` — генерация на клиенте, своя маленькая функция.
+- `newId()` — UUIDv7, генерация на клиенте.
 - `Prefill` — правило предзаполнения: цель плана → прошлый факт на том же номере подхода.
 - `Compare` — план против факта: по каждому целевому подходу цель / факт / оценка / отметка;
   добавленные, пропущенные и заменённые подходы; итоги (время, объём, темп); прошлые результаты
@@ -110,6 +110,31 @@ UI-код тот же (ADR 0003). Остальной план от этого н
 - `ApiClient` (Ktor) — в модуле `client`, общий для `cli` и `app`.
 - Юнит-тесты на `Prefill`, `Compare`, `Passes` (неровный круг, пропуски, добавленный подход) и
   `Outbox` (отметил → снял → отметил; повтор после потерянного ответа).
+
+**Сделано 2026-11-03.** Код — `core/src/commonMain/kotlin/train/core/`, 34 теста на JVM. Решения
+по ходу:
+- `kotlin.uuid.Uuid` и `kotlin.time.Instant` — из stdlib (в Kotlin 2.4 стабильны), сериализуются
+  kotlinx.serialization. `Uuid.generateV7()` ещё экспериментальный — обёрнут в `newId()`.
+  Дата плана — `LocalDate` из kotlinx-datetime 0.8.0; в Wasm он тянет npm `@js-joda/core`
+  (обновлён `kotlin-js-store/wasm/yarn.lock`).
+- `TrainJson`: отсутствующее поле — `null`, `null` в ответ не пишется (короче для агента).
+- ID блоков, упражнений плана и целей во входном JSON необязательны — генерируются при разборе.
+- Раскладка тренировки — свои типы (`LayoutBlock`, `LayoutItem`): тип записи и сторона уже
+  разрешены из справочника (`PlanBody.snapshot`), есть `replacedFrom`, `added`, `removed`. Цели
+  в раскладке не меняются.
+- «Убрать подход» = факт с `deleted` на этом номере: строка прячется, плановый подход в `compare`
+  — `SKIPPED`. «+ подход» = факт без цели со следующим номером.
+- Предзаполнение диапазона повторов — верхняя граница. Поля берутся только те, что есть у типа
+  записи.
+- Отдых после закрытого прохода; не задан у блока → отдых упражнения (иначе у блока из одного
+  упражнения таймера не было бы).
+- Нагрузка — три числа (DESIGN, «Аналитика»): `volumeKg` с долей веса тела (`bodyweightFactor`
+  у упражнения, вес тела — параметр `compare`), `workSets`, `timeUnderLoadSec`. Неизвестный
+  объём не считается нулём: такие подходы — в `volumeUnknownSets`. Темп — `paceSecPerKg`.
+- `compare` отдаёт подходы коротко (`DoneSet`, без служебных полей); `exerciseId` у подхода —
+  только если он сделан до замены. Факты без места в раскладке — в `unplaced`, не теряются.
+- `Outbox`: `baseRev` — это `rev` записи в очереди; правка поверх неотправленного — новый
+  `opId` с прежней базой; ответ на старый `opId` переносит базу, но запись не снимает.
 
 ## Шаг 3. `server`
 
@@ -119,11 +144,11 @@ UI-код тот же (ADR 0003). Остальной план от этого н
 |---|---|
 | `app_user` | id, email, name, `profile jsonb` (оборудование и пр.) |
 | `api_key` | id, user_id, `key_hash`, label, revoked_at |
-| `exercise` | id, owner_user_id (null = общий), source_id, name_ru, name_en, muscles_primary, `muscles_secondary jsonb`, equipment, implements, record_type, per_side, media_key, `instructions jsonb`, deleted_at |
-| `plan` | id, user_id, date, title, version, started_at, started_version, `flags jsonb` (например «правка не применилась»), deleted_at |
+| `exercise` | id, owner_user_id (null = общий), source_id, name_ru, name_en, muscles_primary, `muscles_secondary jsonb`, equipment, implements, bodyweight_factor, record_type, per_side, media_key, `instructions jsonb`, deleted_at |
+| `plan` | id, user_id, date, title, version, started_at, started_version (`< version` — правка не применилась), deleted_at |
 | `plan_revision` | plan_id, version, `body jsonb`, created_at — неизменяемые |
 | `workout` | id, user_id, plan_id, plan_version, started_at, finished_at, comment, `layout jsonb` (снимок), rev, op_id, deleted |
-| `workout_set` | id, workout_id, user_id, exercise_id, record_type, per_side, block_key, item_key, set_no, target_id, weight, reps, extra_weight, seconds, rating, note, done, done_at, received_at, rev, op_id, deleted |
+| `workout_set` | id, workout_id, user_id, exercise_id, record_type, per_side, block_id, item_id, set_no, target_id, weight, reps, extra_weight, seconds, rating, note, done, done_at, received_at, rev, op_id, deleted |
 | `measurement` | id, user_id, type, value, unit, measured_at, workout_id, rev, op_id, deleted |
 | `revision_log` | entity, entity_id, rev, `data jsonb`, replaced_at — перезаписанные версии |
 
@@ -132,8 +157,8 @@ UI-код тот же (ADR 0003). Остальной план от этого н
 
 **Авторизация** (ADR 0008). Фильтр по заголовку `X-Api-Key`: хеш → пользователь в контексте
 запроса. Если есть `Cf-Access-Jwt-Assertion`, почта из него должна совпасть с владельцем ключа
-(включается вместе с Cloudflare). Все запросы фильтруются по `user_id`. Первый пользователь и ключ создаются командой запуска
-(`gym admin init` или переменной окружения при первом старте).
+(включается вместе с Cloudflare). Все запросы фильтруются по `user_id`. Первый пользователь и ключ —
+из окружения при старте (`TRAIN_BOOTSTRAP_EMAIL`, `TRAIN_BOOTSTRAP_KEY`).
 
 **API** (`/api`, схема на `/q/openapi`):
 
@@ -150,10 +175,11 @@ UI-код тот же (ADR 0003). Остальной план от этого н
 | `GET /workouts?from=&to=` · `GET /workouts/{id}` | тренировки с подходами |
 | `PUT /workouts/{id}` | upsert: старт (`planVersion` и снимок; фиксирует `plan.started_at`, при другой версии — пометка), `layout`, финиш, комментарий |
 | `PUT /workouts/{id}/sets/{setId}` | upsert полного состояния с `baseRev` + `opId`; снятие отметки и удаление — `done` / `deleted` |
-| `GET /workouts/{id}/compare` | план против факта (`core.Compare`) |
+| `GET /workouts/{id}/compare` | план против факта (`core.compare`); вес тела — последний замер `weight` до старта |
 | `GET/PUT /measurements/{id}` · `GET /measurements` | замеры (тот же протокол) |
 | `GET/PUT /profile` | профиль: оборудование, настройки |
 | `GET /trash` · `POST /trash/purge` | корзина и окончательное удаление |
+| `GET /me` · `POST /keys` · `GET /keys` · `DELETE /keys/{id}` | владелец ключа; новый ключ, список, отзыв |
 
 Синхронизация — по ADR 0007:
 - тот же `opId` → `200` без изменений;
@@ -162,10 +188,10 @@ UI-код тот же (ADR 0003). Остальной план от этого н
   `revision_log`;
 - вторую активную тренировку сервер не отвергает — принимает и помечает.
 
-**Источник и медиа.** Путь к датасету задаётся в конфиге (`train.source.path`). `exercises.json`
-загружается в память при старте и нужен для поиска. Медиа-пакет — отдельная папка
-(`train.media.path`), отдаётся по `GET /media/{media_id}.jpg|.gif`; имена файлов как в датасете,
-`0289-xxxx.jpg`. Нет файла → `404`, клиент рисует заглушку.
+**Источник и медиа.** Путь к `exercises.json` — `train.source.path`; файл загружается в память
+при первом поиске. Медиа-пакет — отдельная папка (`train.media.path`), отдаётся по
+`GET /media/{media_id}.jpg|.gif`; имена файлов как в датасете, `0289-xxxx.jpg`, файлы ищутся в
+корне папки и в `images/` / `videos/`. Нет файла → `404`, клиент рисует заглушку.
 
 Готово, когда проходят REST-тесты (`@QuarkusTest`):
 - цикл план → старт → подходы → финиш → compare;
@@ -173,14 +199,40 @@ UI-код тот же (ADR 0003). Остальной план от этого н
   воскрешает удалённую запись;
 - старт с версией 1 после правки плана до версии 2 → тренировка принята, план помечен, compare
   идёт по снимку;
-- чужой ключ не видит чужое.
+- чужой ключ не видит чужое;
+- отозванный ключ получает `401`.
+
+**Сделано 2026-11-03.** Код — `server/src/main/kotlin/train/server/`, 14 тестов (`ApiTest`,
+`InfoResourceTest`) на Postgres из Dev Services. Решения по ходу:
+- Хранение — JDBC через тонкий `Db` (без Hibernate/Panache): тело плана и раскладка — jsonb,
+  запросы короткие, а сущности ORM дублировали бы модель `core`. В `@Transactional` все запросы
+  идут одним соединением, `for update` держит строку.
+- Протокол ADR 0007 — общий `sync()` для тренировок, подходов и замеров. Ответ — запись, как она
+  легла в базу (время — до микросекунд), поэтому повтор с тем же `opId` возвращает то же самое.
+- Первый пользователь — переменными окружения при старте, `gym admin init` не нужен; в `%dev` —
+  `dev@local` / `dev-key`. Новый ключ — `POST /api/keys`, показывается один раз, хранится хеш
+  SHA-256. Ключи выпускает и отзывает только владелец своих ключей; отозванный получает `401`,
+  отозванный bootstrap-ключ при рестарте не возвращается — нужен новый в окружении.
+- Открыты без ключа только `/api/info`, оболочка приложения и `/q/*`. Медиа — по ключу:
+  приложение грузит картинки своим HTTP-клиентом.
+- План: ID блоков, упражнений и целей не повторяются, упражнения — из справочника пользователя,
+  иначе `400`. Запись в удалённый план возвращает его из корзины. План, который окончательно
+  удалили, пока телефон был без сети, тренировку не ломает: она принимается без `planId`.
+- `GET /exercises/{id}`, `GET /source/exercises/{id}` — добавлены; `PATCH` — только своих
+  упражнений. Поиск по датасету: каждое слово запроса — в названии, мышцах, части тела или снаряде.
+- Корзина: `purge` удаляет планы, тренировки (с подходами) и замеры из корзины; удалённые подходы
+  живых тренировок остаются — иначе старая отправка воскресила бы подход.
+- «Сегодня» для статуса плана и границы дней в фильтрах — по `train.zone` (по умолчанию пояс
+  системы).
 
 ## Шаг 4. CLI `gym`
 
 Конфиг: `GYM_URL`, `GYM_API_KEY` или `~/.config/gym/config`. Вывод — JSON (ADR 0005).
 
 ```
-gym plan put <file.json|->        # создать или заменить план
+gym [--url …] [--pretty] <команда>
+gym info | me
+gym plan put <file.json|-> [--id] # создать или заменить план
 gym plan list [--from --to]
 gym plan get <id>
 gym plan rm <id>
@@ -188,13 +240,34 @@ gym workout list [--from --to]
 gym workout get <id>
 gym compare <workoutId>
 gym exercise list [--q]
-gym exercise search <q>           # по всему датасету
-gym exercise add <sourceId> --ru "..." [--type ...]
-gym measure list
-gym profile get | put <file>
-gym admin init --email ...        # первый пользователь и ключ
-gym admin key [--qr]              # новый ключ; --qr — ссылка …/#key=… для телефона
+gym exercise get <id>
+gym exercise search <q…> [--limit] # по всему датасету
+gym exercise add [<sourceId>] --ru "..." [--type ... --implements --per-side ...]
+gym exercise edit <id> [поля как у add]
+gym exercise last <id…> [--exclude <workoutId>]
+gym measure list [--type --from --to]
+gym measure add <type> <value> [--unit kg] [--at ISO]
+gym profile get | put <file|->
+gym trash list | purge --yes
+gym admin key [--label] [--qr]    # новый ключ; --qr — ссылка …/#key=… для телефона
+gym admin keys | revoke <id>
 ```
+
+**Сделано 2026-11-03.** Код — `cli/src/main/kotlin/train/cli/`, 11 тестов (`CliTest`) на Ktor
+MockEngine. Решения по ходу:
+- Настройки: флаг → переменная окружения → файл (`GYM_CONFIG` — другой путь). Файл — строки
+  `ключ=значение`: `url`, `key`, `cf_client_id`, `cf_client_secret`. Сервисный токен Cloudflare
+  Access — ещё `GYM_CF_CLIENT_ID`, `GYM_CF_CLIENT_SECRET`, для агента на другой машине. Редиректы
+  не следуются: редирект — это страница входа Access, о ней и ошибка.
+- Ошибка — одна строка JSON `{"error", "status"}` в stderr и код выхода 1; ошибка аргументов —
+  текст clikt с подсказкой, тоже код 1. `409` у `plan put` — «план уже начат».
+- `plan put` берёт ID из `--id`, иначе из поля `id` в файле, иначе новый: вывод `plan get` можно
+  поправить и отправить обратно — выйдет новая версия того же плана.
+- `measure add` — новая запись (`baseRev = 0`); `trash purge` без `--yes` ничего не делает.
+- `admin key --qr` рисует QR в stderr, чтобы stdout оставался JSON. `gym admin init` не нужен:
+  первый пользователь — из окружения сервера (шаг 3).
+- `ApiClient` в `client` — общий с приложением: `PutResult.Accepted | Conflict` для записей с
+  версией, `ApiException` для остального.
 
 ## Шаг 5. Приложение (PWA)
 

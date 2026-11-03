@@ -1,0 +1,26 @@
+[
+  {
+    "id": "0001",
+    "name": "3/4 sit-up",
+    "body_part": "waist",
+    "equipment": "body weight",
+    "instruction_steps": {"en": ["Lie flat on your back."], "ru": ["Лягте на спину.", "Поднимите корпус."]},
+    "muscle_group": "hip flexors",
+    "secondary_muscles": ["hip flexors", "lower back"],
+    "target": "abs",
+    "image": "images/0001-2gPfomN.jpg",
+    "gif_url": "videos/0001-2gPfomN.gif"
+  },
+  {
+    "id": "0025",
+    "name": "barbell bench press",
+    "body_part": "chest",
+    "equipment": "barbell",
+    "instruction_steps": {"ru": ["Лягте на скамью."]},
+    "muscle_group": "chest",
+    "secondary_muscles": ["triceps", "shoulders"],
+    "target": "pectorals",
+    "image": "images/0025-EIeI8Vf.jpg",
+    "gif_url": "videos/0025-EIeI8Vf.gif"
+  }
+]
