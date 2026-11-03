@@ -1,0 +1,11 @@
+**/build/
+**/.gradle/
+**/.kotlin/
+.git/
+.idea/
+.claude/
+spike/
+docs/
+*.env
+*.iml
+local.properties

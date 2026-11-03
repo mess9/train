@@ -336,6 +336,24 @@ MockEngine. Решения по ходу:
 
 Бэкап — пока ручной `pg_dump`, команда в README.
 
+**Сделано 2026-11-04.** Проверено локально: сборка образа, оба контейнера healthy, API с ключом
+и без, поиск по датасету, картинки и gif, PWA с главным экраном, CLI, данные переживают
+`down`/`up`, повторный старт не дублирует пользователя, `pg_dump` → `pg_restore`.
+- Датасет монтируется одной папкой в `/dataset` (`data/exercises.json`, `images/`, `videos/`).
+  По умолчанию — `/mnt/safe_storage/data/train/exercises-dataset`, по раскладке shelezyaka
+  (живые данные сервисов — в `data/`); другой путь — `TRAIN_DATASET_DIR`. Длинная запись
+  `bind`: без каталога на хосте контейнер не стартует.
+- База — именованный том `train-pgdata`, как у mediabots.
+- Порт `7313` опубликован напрямую (`TRAIN_PORT`) — для телефона в локальной сети, пока нет
+  Traefik и Cloudflare; при подключении туннеля заменить сетью `proxy` и метками Traefik.
+- Образ: сборка на `eclipse-temurin:21-jdk` (плюс `libatomic1` — без неё не запускается Node,
+  которого Kotlin качает для wasm), запуск — `eclipse-temurin:21-jre-alpine` под uid 1000,
+  ~110 МБ. Кэш Gradle — BuildKit cache mount. Тесты в образе не идут — это дело CI.
+- Healthcheck — в `compose.yaml` через `wget` (в alpine нет curl). `TZ: Asia/Yerevan`, как у
+  mediabots: от него считается «сегодня», если не задан `TRAIN_ZONE`.
+
+На сервер не разворачивали — это вместе с CI (следующие итерации, п. 1).
+
 ## Шаг 7. Агент и данные
 
 - Скилл `skills/gym/SKILL.md`: рабочий цикл (план → факт → compare → следующий план), команды CLI,

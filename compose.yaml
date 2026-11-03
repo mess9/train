@@ -1,0 +1,59 @@
+# Будущий деплой — Jenkinsfile, как у mediabots: образ из localhost:5000, секреты — Jenkins
+# credential train-env (список переменных — train.env.example). Пути — абсолютные пути хоста:
+# compose будет запускаться из контейнера Jenkins, относительный путь указал бы внутрь него.
+# Руками: docker compose --env-file train.env up -d --build
+name: train
+
+services:
+  server:
+    image: localhost:5000/mess9/train-server:${IMAGE_TAG:-latest}
+    build: .
+    restart: unless-stopped
+    depends_on:
+      train_postgres:
+        condition: service_healthy
+    environment:
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://train_postgres:5432/train
+      QUARKUS_DATASOURCE_USERNAME: train
+      QUARKUS_DATASOURCE_PASSWORD: ${TRAIN_POSTGRES_PASSWORD:?}
+      TRAIN_BOOTSTRAP_EMAIL: ${TRAIN_BOOTSTRAP_EMAIL:?}
+      TRAIN_BOOTSTRAP_KEY: ${TRAIN_BOOTSTRAP_KEY:?}
+      TRAIN_SOURCE_PATH: /dataset/data/exercises.json
+      TRAIN_MEDIA_PATH: /dataset
+      TZ: Asia/Yerevan
+    volumes:
+      # Датасет: exercises.json + images/ и videos/. Длинная запись — без каталога на хосте
+      # контейнер не стартует, а не получает пустую папку, созданную Docker'ом
+      - type: bind
+        source: ${TRAIN_DATASET_DIR:-/mnt/safe_storage/data/train/exercises-dataset}
+        target: /dataset
+        read_only: true
+    # Пока нет Traefik и Cloudflare — прямой порт для телефона в локальной сети
+    ports:
+      - "${TRAIN_PORT:-7313}:7313"
+    healthcheck:
+      # в alpine есть wget из busybox, curl нет
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:7313/q/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+
+  train_postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: train
+      POSTGRES_PASSWORD: ${TRAIN_POSTGRES_PASSWORD:?}
+      POSTGRES_DB: train
+      TZ: Asia/Yerevan
+    volumes:
+      - train-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "train", "-d", "train"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  train-pgdata:

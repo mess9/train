@@ -50,3 +50,29 @@ API требует заголовок `X-Api-Key`. В dev уже есть пол
 | `TRAIN_MEDIA_PATH` | папка с картинками и гифками (`images/`, `videos/`) |
 | `TRAIN_ZONE` | часовой пояс для «сегодня», например `Europe/Moscow` |
 | `QUARKUS_DATASOURCE_JDBC_URL`, `_USERNAME`, `_PASSWORD` | Postgres |
+
+## Docker
+
+`compose.yaml` (проект `train`) поднимает `server` и `train_postgres` с томом `train-pgdata`.
+Образ собирается из `Dockerfile`: Gradle-сборка с приложением внутри, тесты не запускаются.
+Секреты лежат в env-файле, список переменных — в [train.env.example](train.env.example). Датасет
+монтируется только для чтения: по умолчанию из `/mnt/safe_storage/data/train/exercises-dataset`,
+другой путь задаёт `TRAIN_DATASET_DIR`.
+
+```bash
+cp train.env.example train.env   # заполнить; train.env в .gitignore
+docker compose --env-file train.env up -d --build
+docker compose --env-file train.env ps   # server — healthy, порт 7313
+```
+
+Бэкап пока ручной, дамп пишется на хост:
+
+```bash
+docker exec train-train_postgres-1 pg_dump -U train -Fc train > train-$(date +%F).dump
+```
+
+Восстановление — в пустую базу, с остановленным `server`:
+
+```bash
+docker exec -i train-train_postgres-1 pg_restore -U train -d train --clean --if-exists < train-2026-11-04.dump
+```
