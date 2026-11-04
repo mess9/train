@@ -247,10 +247,11 @@ fun Header(kicker: String, title: String, trailing: @Composable RowScope.() -> U
     }
 }
 
+/** Место на экране то же, что с отступами снаружи, но нажимается вся полоса — под палец, а не под иконку. */
 @Composable
 fun BackLink(label: String, onClick: () -> Unit) {
     Row(
-        Modifier.padding(top = 10.dp, bottom = 4.dp).clip(RoundedCornerShape(8.dp)).tap(onClick).padding(vertical = 4.dp, horizontal = 2.dp),
+        Modifier.clip(RoundedCornerShape(8.dp)).tap(onClick).padding(start = 2.dp, end = 16.dp, top = 14.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {

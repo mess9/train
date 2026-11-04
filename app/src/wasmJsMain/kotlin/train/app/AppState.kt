@@ -135,17 +135,22 @@ class AppState(private val scope: CoroutineScope) {
     var rest by mutableStateOf<RestState?>(null)
     var tools by mutableStateOf(Tools())
 
-    // Навигация: стек экранов в такт истории браузера — «назад» на Android работает как в приложении
+    // Навигация: стек экранов в такт истории браузера — «назад» на Android работает как в приложении.
+    // Каждая запись истории помнит свою глубину; popstate сверяет стек с ней. Счётчика «пропустить
+    // следующий popstate» нет: потерянное или лишнее событие не съедает следующее «назад».
 
     var stack by mutableStateOf(listOf<Screen>(Screen.Home))
         private set
-    private var ignorePop = 0
 
     val screen get() = stack.last()
 
+    private val depth get() = stack.size - 1
+
+    private fun historyDepth(): Int = (window.history.state as? JsNumber)?.toInt() ?: 0
+
     fun go(s: Screen) {
         stack = stack + s
-        window.history.pushState(null, "")
+        window.history.pushState(depth.toJsNumber(), "")
     }
 
     /** Заменить текущий экран, не добавляя шаг «назад». */
@@ -155,25 +160,27 @@ class AppState(private val scope: CoroutineScope) {
 
     /** Вкладки нижней панели и выход из тренировки: стек сначала. */
     fun root(s: Screen) {
-        val depth = stack.size - 1
+        val from = depth
         stack = if (s == Screen.Home) listOf(Screen.Home) else listOf(Screen.Home, s)
-        if (depth > 0) {
-            ignorePop++
-            window.history.go(-depth)
-        }
-        if (s != Screen.Home) window.history.pushState(null, "")
+        // Запись нужной глубины уже есть в истории — встаём на неё, новых не добавляем
+        if (from > depth) window.history.go(depth - from)
+        else if (from < depth) window.history.pushState(depth.toJsNumber(), "")
     }
 
     fun back() {
-        if (stack.size > 1) window.history.back()
+        if (stack.size <= 1) return
+        if (historyDepth() == depth) {
+            window.history.back()
+        } else {
+            // История разошлась со стеком — не ждём popstate, которого может не быть
+            stack = stack.dropLast(1)
+            window.history.replaceState(depth.toJsNumber(), "")
+        }
     }
 
     private fun onPop() {
-        if (ignorePop > 0) {
-            ignorePop--
-            return
-        }
-        if (stack.size > 1) stack = stack.dropLast(1)
+        val d = historyDepth()
+        if (d < depth) stack = stack.take(d + 1)
     }
 
     // Сессия: каждое действие сначала пишется в localStorage
@@ -434,6 +441,7 @@ class AppState(private val scope: CoroutineScope) {
     }
 
     fun start() {
+        window.history.replaceState(0.toJsNumber(), "")
         window.addEventListener("popstate") { onPop() }
         window.addEventListener("online") { poke(); refresh(force = false) }
         document.addEventListener("visibilitychange") {
