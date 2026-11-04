@@ -100,4 +100,44 @@ class PassesTest {
         assertEquals(1, p.currentPass)
         assertEquals(1, p.next(a)?.setNo)
     }
+
+    // Свёрнутая карточка (замечания 14, 28, 7)
+
+    private fun collapsed(item: LayoutItem, vararg facts: SetFact, justRated: Int? = null) =
+        passes(*facts).collapsedRows(item, justRated).map { it.setNo to it.done }
+
+    @Test
+    fun circuitCardWaitsForPassAfterRating() {
+        // Замечание 28: отметил свой подход прохода — карточка сворачивается, а не подставляет следующий
+        assertEquals(listOf(1 to false), collapsed(a))
+        assertEquals(emptyList(), collapsed(a, w.fact(a, 1), justRated = 1))
+        // Проход закрылся — карточка снова показывает подход, уже следующего прохода
+        assertEquals(listOf(2 to false), collapsed(a, w.fact(a, 1), w.fact(b, 1)))
+    }
+
+    @Test
+    fun ratingThatClosesPassKeepsRatedRowAboveNext() {
+        // Замечание 14 (планка 04.11): отметка закрыла проход, следующий подход встал на место
+        // отмеченного с теми же 90 с — казалось, что оценка не нажалась, и её жали ещё дважды
+        assertEquals(listOf(1 to true, 2 to false), collapsed(b, w.fact(a, 1), w.fact(b, 1), justRated = 1))
+        // Отметка была не здесь — только следующий подход
+        assertEquals(listOf(2 to false), collapsed(b, w.fact(a, 1), w.fact(b, 1), justRated = null))
+    }
+
+    @Test
+    fun lastRatedSetCollapsesCard() {
+        // Замечание 28: после отметки последнего невыполненного подхода карточка сворачивается
+        val all = arrayOf(w.fact(a, 1), w.fact(b, 1), w.fact(a, 2), w.fact(b, 2))
+        assertEquals(emptyList(), collapsed(b, *all, justRated = 2))
+    }
+
+    @Test
+    fun singleExerciseShowsNextRightAway() {
+        val single = item(squat, TargetSet(), TargetSet(), TargetSet())
+        val blk = block(single)
+        val wk = workout(blk)
+        fun rows(vararg f: SetFact, justRated: Int? = null) = BlockPasses(blk, f.toList()).collapsedRows(single, justRated).map { it.setNo to it.done }
+        assertEquals(listOf(1 to true, 2 to false), rows(wk.fact(single, 1), justRated = 1))
+        assertEquals(listOf(2 to false), rows(wk.fact(single, 1)))
+    }
 }

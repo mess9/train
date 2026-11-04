@@ -42,8 +42,26 @@ class BlockPasses(val block: LayoutBlock, facts: List<SetFact>) {
 
     val finished get() = currentPass == null
 
-    /** Строка в свёрнутой карточке: первый невыполненный подход упражнения. */
+    /** Круг: в блоке больше одного упражнения. */
+    val circuit get() = items.size > 1
+
+    /** Первый невыполненный подход упражнения. */
     fun next(item: LayoutItem): SetRow? = rows(item).firstOrNull { !it.done }
+
+    /**
+     * Строки свёрнутой карточки. `justRated` — номер подхода этого упражнения, только что отмеченного.
+     *
+     * Карточка показывает следующий подход, но в круге — только когда до упражнения дошёл проход:
+     * отметил свой подход — карточка свернулась и ждёт остальные упражнения. Только что отмеченный
+     * подход остаётся над следующим: иначе на его месте встаёт такой же с теми же значениями и
+     * кажется, что отметка не нажалась.
+     */
+    fun collapsedRows(item: LayoutItem, justRated: Int? = null): List<SetRow> {
+        val next = next(item) ?: return emptyList()
+        if (circuit && next.setNo != currentPass) return emptyList()
+        val rated = justRated?.let { n -> rows(item).firstOrNull { it.setNo == n && it.done && n < next.setNo } }
+        return listOfNotNull(rated, next)
+    }
 
     fun passClosed(setNo: Int) = allRows.filter { it.setNo == setNo }.all { it.done }
 

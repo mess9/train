@@ -83,6 +83,38 @@ class SessionTest {
     }
 
     @Test
+    fun addSetAddsExactlyOneRow() {
+        // Замечание 7: «Добавить подход» — одна строка и один факт. В свёрнутой карточке была видна
+        // одна строка из двух плановых, после добавления раскрылись все три
+        val before = started()
+        val s = before.addSet(circle.id, a.id)
+        assertEquals(listOf(1, 2, 3), s.passes()[1].rows(a).map { it.setNo })
+        assertEquals(before.sets.size + 1, s.sets.size)
+        // Добавленное упражнение: по подходу на проход, потом ещё один
+        val curl = exercise("Бицепс")
+        val added = before.addItem(circle.id, curl)
+        val item = added.w.layout.blocks[1].items.last()
+        assertEquals(listOf(1, 2, 3), added.addSet(circle.id, item.id).passes()[1].rows(item).map { it.setNo })
+    }
+
+    @Test
+    fun removeDoneSet() {
+        // Замечание 16: выполненный подход тоже можно удалить
+        var s = started().rate(circle.id, a.id, 1, Rating.NORMAL, T0).rate(circle.id, a.id, 2, Rating.HARD, T0 + 2.minutes)
+        s = s.removeSet(circle.id, a.id, 1)
+        assertEquals(listOf(2), s.passes()[1].rows(a).map { it.setNo })
+        val gone = s.sets.single { it.itemId == a.id && it.setNo == 1 }
+        assertTrue(gone.deleted)
+        assertTrue(s.outbox.pending.any { (it.record as? SetFact)?.let { r -> r.id == gone.id && r.deleted } == true }, "удаление уходит на сервер")
+        // В разборе его нет: плановый — пропущен
+        assertEquals(SetStatus.SKIPPED, compare(s.w, s.sets, emptyMap()).blocks[1].items[0].sets.single { it.setNo == 1 }.status)
+        // Невыполненный по номеру — тоже
+        s = s.addSet(circle.id, a.id).removeSet(circle.id, a.id, 3)
+        assertEquals(listOf(2), s.passes()[1].rows(a).map { it.setNo })
+        assertEquals(s, s.removeSet(circle.id, a.id, 7), "нет такого — ничего")
+    }
+
+    @Test
     fun replaceKeepsDoneSetsWithOldExercise() {
         val goblet = exercise("Гоблет-присед")
         var s = started().rate(circle.id, a.id, 1, Rating.NORMAL, T0).edit(circle.id, a.id, 2, SetValues(weight = 14.0, reps = 11))

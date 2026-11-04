@@ -87,6 +87,12 @@ fun Session.removeSet(blockId: Uuid, itemId: Uuid): Session {
     return record(f.copy(deleted = true))
 }
 
+/** Удалить подход `setNo`, в том числе выполненный: в `compare` плановый станет пропущенным. */
+fun Session.removeSet(blockId: Uuid, itemId: Uuid, setNo: Int): Session {
+    val f = factFor(blockId, itemId, setNo) ?: return this
+    return record(f.copy(deleted = true))
+}
+
 /** Сменить тип записи на месте: новые подходы — с ним, сделанные сохраняют свой. */
 fun Session.setRecordType(blockId: Uuid, itemId: Uuid, type: RecordType): Session =
     changeItem(blockId, itemId, { it.copy(recordType = type) }) { it.copy(recordType = type) }
