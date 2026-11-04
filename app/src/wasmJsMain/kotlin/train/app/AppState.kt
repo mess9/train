@@ -88,7 +88,7 @@ data class Cache(
     val workouts: List<Workout> = emptyList(),
     val measurements: List<Measurement> = emptyList(),
     val savedAt: Instant? = null,
-    /** Профиль: из него приложение берёт вибрацию. `null` — ещё не загружен (вибрации нет). */
+    /** Профиль — ради настроек телефона (вибрация); сам профиль правят через `gym profile`. */
     val profile: Profile? = null,
 )
 
@@ -130,28 +130,6 @@ class AppState(private val scope: CoroutineScope) {
     /** Версия сервера и сборка приложения на нём — с последнего обновления данных, не в кэше. */
     var serverInfo by mutableStateOf<ServerInfo?>(null)
         private set
-
-    /** Высота экранной клавиатуры, dp: на неё поднят весь экран (Main.kt). */
-    var keyboard by mutableStateOf(0)
-
-    /** Вибрация по сигналам — настройка профиля, по умолчанию выключена. */
-    val vibration get() = cache.profile?.vibration == true
-
-    /** Включить или выключить вибрацию: сразу в кэше, на сервер — профилем целиком. */
-    var profileError by mutableStateOf<String?>(null)
-        private set
-
-    fun setVibration(on: Boolean) {
-        val k = key ?: return
-        profileError = null
-        val p = (cache.profile ?: Profile()).copy(vibration = on)
-        saveCache(cache.copy(profile = p))
-        scope.launch {
-            runCatching { client(k).putProfile(p) }
-                .onSuccess { if (key == k) saveCache(cache.copy(profile = it)) }
-                .onFailure { profileError = "Не сохранилось на сервере (${linkText(linkOf(it)) ?: it.message ?: "ошибка"}) — при обновлении данных вернётся прежнее" }
-        }
-    }
 
     var rest by mutableStateOf<RestTimer?>(null)
     var tools by mutableStateOf(Tools())
@@ -325,6 +303,36 @@ class AppState(private val scope: CoroutineScope) {
                 if (link == Link.ONLINE) link = Link.SERVER_ERROR
             } finally {
                 refreshing = false
+            }
+        }
+    }
+
+    /** Вибрация в конце отдыха и таймера (`Profile.vibration`, по умолчанию выключена). */
+    val vibration get() = cache.profile?.vibration == true
+
+    /** Не сохранилась настройка профиля — почему. */
+    var profileError by mutableStateOf<String?>(null)
+        private set
+
+    /**
+     * Включить или выключить вибрацию. Сразу на экране, потом на сервере: профиль меняется целиком,
+     * поэтому сначала свежая его версия — имя и оборудование из `gym profile` не затираются.
+     * Сервер не принял — настройка возвращается.
+     */
+    fun setVibration(on: Boolean) {
+        val k = key ?: return
+        val before = cache.profile
+        profileError = null
+        saveCache(cache.copy(profile = (before ?: Profile()).copy(vibration = on)))
+        scope.launch {
+            try {
+                val c = client(k)
+                val saved = c.putProfile(c.profile().copy(vibration = on))
+                if (key == k) saveCache(cache.copy(profile = saved))
+            } catch (e: Throwable) {
+                if (key != k) return@launch
+                saveCache(cache.copy(profile = before))
+                profileError = "Не сохранилось: " + (linkText(linkOf(e)) ?: "ошибка сервера")
             }
         }
     }
