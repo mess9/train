@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,7 +29,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.ComposeViewport
 import kotlinx.browser.document
+import kotlinx.coroutines.delay
 import train.client.Link
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 @OptIn(ExperimentalComposeUiApi::class)
 fun main() {
@@ -48,10 +53,21 @@ fun Root() {
             Connect(app)
             return@Box
         }
+        TimerSignals(app)
         val screen = app.screen
+        // Состояние экранов в стеке (прокрутка, раскрытые карточки) живёт, пока экран в стеке:
+        // вернулся с «Техники» — тренировка на том же месте
+        val saved = rememberSaveableStateHolder()
+        val keys = app.stack.mapIndexed { i, sc -> "$i:$sc" }
+        val seen = remember { mutableSetOf<String>() }
+        LaunchedEffect(keys) {
+            (seen - keys.toSet()).forEach(saved::removeState)
+            seen.retainAll(keys.toSet())
+            seen += keys
+        }
         Column(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f)) {
-                when (screen) {
+                saved.SaveableStateProvider(keys.last()) { when (screen) {
                     Screen.Home -> Home(app)
                     is Screen.PlanView -> PlanView(app, screen.id)
                     Screen.Workout -> WorkoutScreen(app)
@@ -61,13 +77,33 @@ fun Root() {
                     is Screen.HistoryDetail -> HistoryDetail(app, screen.id)
                     Screen.Measurements -> Measurements(app)
                     Screen.Settings -> Settings(app)
-                }
+                } }
             }
             if (screen == Screen.Home || screen == Screen.History || screen is Screen.HistoryDetail || screen == Screen.Measurements) {
                 NavBar(app, screen)
             }
         }
     }
+}
+
+/**
+ * Конец отдыха и ручного таймера — вибрация и звук. Здесь, а не на экране тренировки: сигнал
+ * нужен и когда открыта «Техника».
+ */
+@Composable
+private fun TimerSignals(app: AppState) {
+    val restUntil = app.rest?.until
+    LaunchedEffect(restUntil) { signalAt(restUntil) }
+    val timerUntil = app.tools.timerUntil
+    LaunchedEffect(timerUntil) { signalAt(timerUntil) }
+}
+
+private suspend fun signalAt(at: Instant?) {
+    val left = (at ?: return) - Clock.System.now()
+    if (!left.isPositive()) return
+    delay(left)
+    buzz()
+    beep()
 }
 
 @Composable

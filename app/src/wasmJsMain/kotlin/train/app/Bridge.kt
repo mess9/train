@@ -14,6 +14,9 @@ fun wake(on: Boolean): Unit = js("window.bridge.wake(on)")
 
 fun buzz(): Unit = js("navigator.vibrate && navigator.vibrate([200, 100, 200])")
 
+/** Короткий сигнал через Web Audio. Звук разблокирован первым касанием (index.html). */
+fun beep(): Unit = js("window.bridge.beep()")
+
 fun showGif(id: String, url: String, key: String, x: Double, y: Double, w: Double, h: Double): Unit =
     js("window.bridge.showGif(id, url, key, x, y, w, h)")
 

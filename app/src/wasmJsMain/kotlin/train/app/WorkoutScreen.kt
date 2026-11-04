@@ -23,6 +23,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,14 +39,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import train.core.BlockPasses
 import train.core.Exercise
 import train.core.LayoutBlock
 import train.core.LayoutItem
 import train.core.Rating
 import train.core.RecordType
-import train.core.RestKind
+import train.core.RestTimer
 import train.core.SetRow
 import train.core.SetValues
 import train.core.addItem
@@ -57,6 +58,7 @@ import train.core.rate
 import train.core.removeItem
 import train.core.removeSet
 import train.core.replace
+import train.core.restTimer
 import train.core.setRecordType
 import train.core.values
 import kotlin.time.Clock
@@ -74,7 +76,13 @@ private sealed interface WSheet {
     data class Add(val blockId: Uuid, val itemId: Uuid?) : WSheet
 
     data class ConfirmFinish(val undone: Int) : WSheet
+
+    /** Какой выполненный подход удалить. */
+    data class RemoveDone(val blockId: Uuid, val itemId: Uuid) : WSheet
 }
+
+/** Раскрытые карточки — в сохраняемом состоянии экрана: вернулся с «Техники», они раскрыты. */
+private val openSaver = listSaver<Set<Uuid>, String>({ it.map(Uuid::toString) }, { it.map(Uuid::parse).toSet() })
 
 @Composable
 fun WorkoutScreen(app: AppState) {
@@ -85,28 +93,12 @@ fun WorkoutScreen(app: AppState) {
         return
     }
     val now = rememberNow()
-    var open by remember { mutableStateOf(setOf<Uuid>()) }
-    var reorder by remember { mutableStateOf(false) }
+    var open by rememberSaveable(stateSaver = openSaver) { mutableStateOf(setOf<Uuid>()) }
+    var reorder by rememberSaveable { mutableStateOf(false) }
     var sheet by remember { mutableStateOf<WSheet?>(null) }
 
+    // Сигнал конца отдыха и таймера — в Main.kt: он нужен и на «Технике»
     val rest = app.rest
-    LaunchedEffect(rest) {
-        if (rest == null) return@LaunchedEffect
-        val left = rest.until - Clock.System.now()
-        if (left.isPositive()) {
-            delay(left)
-            buzz()
-        }
-    }
-    val timerUntil = app.tools.timerUntil
-    LaunchedEffect(timerUntil) {
-        if (timerUntil == null) return@LaunchedEffect
-        val left = timerUntil - Clock.System.now()
-        if (left.isPositive()) {
-            delay(left)
-            buzz()
-        }
-    }
 
     fun finishNow() {
         app.act { finish(Clock.System.now()) }
@@ -181,11 +173,6 @@ fun WorkoutScreen(app: AppState) {
                         if (!reorder) DashedButton("+ упражнение в «$title»") { sheet = WSheet.Add(b.id, null) }
                     }
                 }
-                Gap(22.dp)
-                Btn("Завершить тренировку", {
-                    val undone = undoneCount(passes)
-                    if (undone > 0) sheet = WSheet.ConfirmFinish(undone) else finishNow()
-                }, Modifier.fillMaxWidth(), big = true)
             }
 
             if (rest != null) RestBar(app, rest, now)
@@ -206,6 +193,16 @@ fun WorkoutScreen(app: AppState) {
                 }
             }
             is WSheet.Add -> Sheet({ sheet = null }) { AddSheet(app, sh) { sheet = null } }
+            is WSheet.RemoveDone -> {
+                val b = s.block(sh.blockId)
+                val item = b?.items?.firstOrNull { it.id == sh.itemId }
+                val done = if (b == null || item == null) emptyList() else BlockPasses(b, s.sets).rows(item).filter { it.done }
+                if (b == null || item == null || done.isEmpty()) {
+                    sheet = null
+                } else {
+                    Sheet({ sheet = null }) { RemoveDoneSheet(app, b, item, done) { sheet = null } }
+                }
+            }
             is WSheet.ConfirmFinish -> Sheet({ sheet = null }) {
                 Txt("Завершить тренировку?", ts(17.sp, weight = FontWeight.Bold))
                 Txt(
@@ -223,24 +220,24 @@ fun WorkoutScreen(app: AppState) {
 
 private fun undoneCount(passes: List<BlockPasses>) = passes.sumOf { bp -> bp.items.sumOf { item -> bp.rows(item).count { !it.done } } }
 
-/** Оценка = отметка. Новая отметка запускает отдых по плану, снятая — убирает его. */
+/**
+ * Оценка = отметка. Новая отметка запускает отдых (по плану или открытый в круге) и остаётся видна
+ * в свёрнутой карточке, снятая — убирает отдых.
+ */
 private fun rate(app: AppState, b: LayoutBlock, item: LayoutItem, row: SetRow, r: Rating) {
     val now = Clock.System.now()
     app.act { rate(b.id, item.id, row.setNo, r, now) }
     when {
         !row.done -> {
+            app.justRated = item.id to row.setNo
             val s = app.session ?: return
             val block = s.block(b.id) ?: return
-            val rest = BlockPasses(block, s.sets).restAfter(item, row.setNo)
-            val sec = rest.seconds?.takeIf { it > 0 }
-            app.rest = sec?.let {
-                // Проход бывает только в круге: у одиночного упражнения «после прохода» звучит странно
-                val circuit = block.items.count { i -> !i.removed } > 1
-                val label = if (rest.kind == RestKind.AFTER_PASS && circuit) "Отдых после прохода по плану · $it с" else "Отдых по плану · $it с"
-                RestState(now + it.seconds, it, label)
-            }
+            app.rest = BlockPasses(block, s.sets).restTimer(item, row.setNo, now)
         }
-        row.fact?.rating == r -> app.rest = null
+        row.fact?.rating == r -> {
+            app.rest = null
+            if (app.justRated == item.id to row.setNo) app.justRated = null
+        }
     }
 }
 
@@ -261,11 +258,11 @@ private fun ExerciseCard(
     val s = app.session ?: return
     val ex = app.exercise(item.exerciseId)
     val rows = bp.rows(item)
-    val next = rows.firstOrNull { !it.done }
+    val next = bp.next(item)
     val shown = when {
         expanded -> rows
-        reorder || next == null -> emptyList()
-        else -> listOf(next)
+        reorder -> emptyList()
+        else -> bp.collapsedRows(item, app.justRated?.takeIf { it.first == item.id }?.second)
     }
     val replacedName = item.replacedFrom?.let { app.exercise(it)?.nameRu }
     Surface(Modifier.fillMaxWidth().alpha(if (next == null && !expanded) 0.62f else 1f), tint.card, tint.line, 16.dp) {
@@ -296,7 +293,7 @@ private fun ExerciseCard(
                 Column(Modifier.padding(start = 8.dp, end = 8.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (expanded) RowHead(item.recordType)
                     shown.forEach { row ->
-                        SetLine(app, bp.block, item, row, row == next, s.previous, onRate)
+                        SetLine(app, bp.block, item, row, row == next, s.previous, onRate, of = if (expanded) null else rows.size)
                     }
                     if (expanded) {
                         Box(
@@ -332,7 +329,17 @@ private fun RowHead(type: RecordType) {
 }
 
 @Composable
-private fun SetLine(app: AppState, block: LayoutBlock, item: LayoutItem, row: SetRow, next: Boolean, previous: List<train.core.SetFact>, onRate: (SetRow, Rating) -> Unit) {
+private fun SetLine(
+    app: AppState,
+    block: LayoutBlock,
+    item: LayoutItem,
+    row: SetRow,
+    next: Boolean,
+    previous: List<train.core.SetFact>,
+    onRate: (SetRow, Rating) -> Unit,
+    /** Свёрнутая карточка: всего подходов — видно, что строк больше, чем показано. */
+    of: Int? = null,
+) {
     val v = row.values(previous)
     val shape = RoundedCornerShape(12.dp)
     val type = item.recordType
@@ -344,7 +351,7 @@ private fun SetLine(app: AppState, block: LayoutBlock, item: LayoutItem, row: Se
     ) {
         Column(Modifier.width(26.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Txt(row.setNo.toString(), ts(14.sp, weight = FontWeight.Bold))
-            val t = row.fact?.takeIf { it.done }?.doneAt?.clock() ?: if (row.target == null) "доп" else null
+            val t = row.fact?.takeIf { it.done }?.doneAt?.clock() ?: of?.let { "из $it" } ?: if (row.target == null) "доп" else null
             if (t != null) Txt(t, ts(10.sp, C.Faint))
         }
         Txt(short(type, row.last(previous)?.values), ts(12.sp, C.Muted), Modifier.width(38.dp), maxLines = 2)
@@ -420,8 +427,25 @@ private fun DashedButton(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun RestBar(app: AppState, rest: RestState, now: Instant) {
-    val left = rest.until - now
+private fun RestBar(app: AppState, rest: RestTimer, now: Instant) {
+    val until = rest.until
+    if (until == null) {
+        // Открытый отдых: в плане его нет — сколько прошло
+        Column(Modifier.fillMaxWidth().background(C.Bar)) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(C.Border))
+            Row(
+                Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Txt(rest.label, ts(13.sp, C.Muted), Modifier.weight(1f))
+                Txt(mmss(now - rest.since), ts(22.sp, weight = FontWeight.Bold), Modifier.padding(end = 6.dp))
+                Btn("Скрыть", { app.rest = null }, kind = Kind.Chip)
+            }
+        }
+        return
+    }
+    val left = until - now
     Column(Modifier.fillMaxWidth().background(C.Bar)) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(C.Border))
         Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -432,11 +456,8 @@ private fun RestBar(app: AppState, rest: RestState, now: Instant) {
                     ts(22.sp, if (left.isPositive()) C.Text else C.Lime, FontWeight.Bold),
                     Modifier.padding(end = 6.dp),
                 )
-                Btn("−15", { app.rest = rest.copy(until = rest.until - 15.seconds) }, kind = Kind.Chip)
-                Btn("+15", {
-                    val base = maxOf(rest.until, Clock.System.now())
-                    app.rest = rest.copy(until = base + 15.seconds, total = rest.total + 15)
-                }, kind = Kind.Chip)
+                Btn("−15", { app.rest = rest.shift(-15, Clock.System.now()) }, kind = Kind.Chip)
+                Btn("+15", { app.rest = rest.shift(15, Clock.System.now()) }, kind = Kind.Chip)
                 Btn("Скрыть", { app.rest = null }, kind = Kind.Chip)
             }
             val frac = (left.inWholeMilliseconds / (rest.total * 1000f)).coerceIn(0f, 1f)
@@ -464,43 +485,26 @@ private fun ToolsSheet(app: AppState, now: Instant) {
     }
     val big = ts(64.sp, weight = FontWeight.Bold)
     if (t.tab == 0) {
-        val running = t.timerUntil != null
-        val leftMs = t.timerUntil?.let { (it - now).inWholeMilliseconds.coerceAtLeast(0) } ?: (t.timerLeft * 1000L)
-        val finished = running && leftMs <= 0
+        val running = t.timerRunning
+        val leftMs = t.timerLeftMs(now)
+        val finished = t.timerFinished(now)
         Txt(mmss((leftMs + 999).milliseconds), big, Modifier.fillMaxWidth().padding(vertical = 6.dp), TextAlign.Center)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
             presets.forEach { p ->
-                Btn(mmss(p.seconds), { app.tools = t.copy(timerDur = p, timerLeft = p, timerUntil = null) }, kind = if (t.timerDur == p) Kind.ChipOn else Kind.Chip)
+                Btn(mmss(p.seconds), { app.tools = t.timerPreset(p) }, kind = if (t.timerDur == p) Kind.ChipOn else Kind.Chip)
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
-            Btn("−15 с", {
-                app.tools = if (t.timerUntil != null) t.copy(timerUntil = t.timerUntil - 15.seconds) else t.copy(timerLeft = (t.timerLeft - 15).coerceAtLeast(0))
-            }, kind = Kind.Ghost)
-            Btn(if (finished) "Заново" else if (running) "Пауза" else "Старт", {
-                val n = Clock.System.now()
-                app.tools = when {
-                    finished -> t.copy(timerUntil = n + t.timerDur.seconds)
-                    running -> t.copy(timerUntil = null, timerLeft = ((leftMs + 500) / 1000).toInt())
-                    else -> {
-                        val left = if (t.timerLeft > 0) t.timerLeft else t.timerDur
-                        t.copy(timerLeft = left, timerUntil = n + left.seconds)
-                    }
-                }
-            }, Modifier.widthIn(min = 140.dp))
-            Btn("+15 с", {
-                app.tools = if (t.timerUntil != null) t.copy(timerUntil = maxOf(t.timerUntil, Clock.System.now()) + 15.seconds) else t.copy(timerLeft = t.timerLeft + 15)
-            }, kind = Kind.Ghost)
+            Btn("−15 с", { app.tools = t.timerShift(-15, Clock.System.now()) }, kind = Kind.Ghost)
+            Btn(if (finished) "Заново" else if (running) "Пауза" else "Старт", { app.tools = t.timerToggle(Clock.System.now()) }, Modifier.widthIn(min = 140.dp))
+            Btn("+15 с", { app.tools = t.timerShift(15, Clock.System.now()) }, kind = Kind.Ghost)
         }
     } else {
-        val ms = t.swAcc + (t.swStart?.let { (now - it).inWholeMilliseconds } ?: 0)
+        val ms = t.stopwatchMs(now)
         Txt(mmss(ms.milliseconds), big, Modifier.fillMaxWidth().padding(vertical = 6.dp), TextAlign.Center)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
-            Btn("Сброс", { app.tools = t.copy(swAcc = 0, swStart = t.swStart?.let { Clock.System.now() }) }, kind = Kind.Ghost)
-            Btn(if (t.swStart != null) "Стоп" else "Старт", {
-                val n = Clock.System.now()
-                app.tools = if (t.swStart != null) t.copy(swAcc = t.swAcc + (n - t.swStart).inWholeMilliseconds, swStart = null) else t.copy(swStart = n)
-            }, Modifier.widthIn(min = 140.dp))
+            Btn("Сброс", { app.tools = t.stopwatchReset() }, kind = Kind.Ghost)
+            Btn(if (t.swStart != null) "Стоп" else "Старт", { app.tools = t.stopwatchToggle(Clock.System.now()) }, Modifier.widthIn(min = 140.dp))
         }
     }
 }
@@ -532,6 +536,10 @@ private fun MenuSheet(app: AppState, b: LayoutBlock, item: LayoutItem, onClose: 
             app.act { removeSet(b.id, item.id) }
             onClose(null)
         }
+        val s = app.session
+        if (s != null && BlockPasses(b, s.sets).rows(item).any { it.done }) {
+            MenuItem("Удалить выполненный подход…") { onClose(WSheet.RemoveDone(b.id, item.id)) }
+        }
         when (item.recordType) {
             RecordType.REPS -> MenuItem("Записывать временем вместо повторов") {
                 app.act { setRecordType(b.id, item.id, RecordType.TIME) }
@@ -547,6 +555,29 @@ private fun MenuSheet(app: AppState, b: LayoutBlock, item: LayoutItem, onClose: 
         MenuItem("Убрать из тренировки", C.Hard) {
             app.act { removeItem(b.id, item.id) }
             onClose(null)
+        }
+    }
+}
+
+@Composable
+private fun RemoveDoneSheet(app: AppState, b: LayoutBlock, item: LayoutItem, done: List<SetRow>, onDone: () -> Unit) {
+    val ex = app.exercise(item.exerciseId)
+    Txt("Удалить подход", ts(17.sp, weight = FontWeight.Bold))
+    Txt("${ex?.nameRu ?: "Упражнение"} · в разборе плановый подход станет пропущенным", ts(14.sp, C.Soft))
+    Column {
+        done.forEach { row ->
+            val f = row.fact
+            val label = listOfNotNull(
+                "Подход ${row.setNo}",
+                f?.let { short(it.recordType, it.values) },
+                f?.rating?.label(),
+                f?.doneAt?.clock(),
+            ).joinToString(" · ")
+            MenuItem(label, C.Hard) {
+                app.act { removeSet(b.id, item.id, row.setNo) }
+                if (app.justRated == item.id to row.setNo) app.justRated = null
+                onDone()
+            }
         }
     }
 }

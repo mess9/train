@@ -15,6 +15,18 @@
   <script>
     // Всё, что Compose не умеет сам: замок вкладки, wake lock, гифка поверх canvas, service worker.
     // Kotlin вызывает функции window.bridge и читает строки — без колбэков через границу Wasm.
+    // Compose для KeyboardType.Number ставит скрытому полю inputmode="number" — такого значения нет,
+    // и телефон открывает буквенную клавиатуру. Правим на "numeric" до старта приложения
+    (() => {
+      const fix = (n, v) => (String(n).toLowerCase() === 'inputmode' && v === 'number') ? 'numeric' : v;
+      const set = Element.prototype.setAttribute;
+      Element.prototype.setAttribute = function (n, v) { return set.call(this, n, fix(n, v)); };
+      const d = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'inputMode');
+      if (d && d.set) Object.defineProperty(HTMLElement.prototype, 'inputMode', {
+        ...d, set(v) { d.set.call(this, fix('inputmode', v)); },
+      });
+    })();
+
     window.bridge = (() => {
       // Ключ из ссылки `#key=…` — в localStorage, из адресной строки убрать
       const m = location.hash.match(/[#&]key=([^&]+)/);
@@ -68,7 +80,36 @@
         delete gifs[id];
       }
 
-      return { lock: '?', wake, showGif, hideGif };
+      // Звук конца отдыха. Браузер даёт играть звук только после жеста пользователя: контекст
+      // создаём и будим на первом касании, а сигнал потом звучит и без касания
+      let audio = null;
+      function unlockAudio() {
+        try {
+          audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+          if (audio.state === 'suspended') audio.resume();
+        } catch (e) {}
+      }
+      ['pointerdown', 'touchend', 'keydown'].forEach(t => window.addEventListener(t, unlockAudio, { capture: true, passive: true }));
+      function beep() {
+        if (!audio) return;
+        try {
+          if (audio.state === 'suspended') audio.resume();
+          const t0 = audio.currentTime;
+          [0, 0.3].forEach(d => { // два коротких писка, как вибрация 200-100-200
+            const o = audio.createOscillator(), g = audio.createGain();
+            o.type = 'sine';
+            o.frequency.value = 880;
+            g.gain.setValueAtTime(0.0001, t0 + d);
+            g.gain.exponentialRampToValueAtTime(0.4, t0 + d + 0.01);
+            g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.2);
+            o.connect(g).connect(audio.destination);
+            o.start(t0 + d);
+            o.stop(t0 + d + 0.22);
+          });
+        } catch (e) {}
+      }
+
+      return { lock: '?', wake, showGif, hideGif, beep };
     })();
 
     // Замок «одна вкладка — одна активная тренировка» берётся до старта приложения:

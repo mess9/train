@@ -33,6 +33,8 @@ import train.core.LayoutBlock
 import train.core.Me
 import train.core.Measurement
 import train.core.Plan
+import train.core.RestTimer
+import train.core.Tools
 import train.core.Session
 import train.core.SetFact
 import train.core.SyncRecord
@@ -85,19 +87,6 @@ data class Cache(
     val savedAt: Instant? = null,
 )
 
-/** Отдых по плану после отметки. */
-data class RestState(val until: Instant, val total: Int, val label: String)
-
-/** Таймер и секундомер из шапки тренировки: живут, пока закрыт лист. */
-data class Tools(
-    val tab: Int = 0,
-    val timerDur: Int = 90,
-    val timerLeft: Int = 90,
-    val timerUntil: Instant? = null,
-    val swAcc: Long = 0,
-    val swStart: Instant? = null,
-)
-
 const val KEY_KEY = "key"
 const val CACHE_KEY = "cache"
 const val PAUSE_KEY = "pause"
@@ -137,8 +126,11 @@ class AppState(private val scope: CoroutineScope) {
     var serverInfo by mutableStateOf<ServerInfo?>(null)
         private set
 
-    var rest by mutableStateOf<RestState?>(null)
+    var rest by mutableStateOf<RestTimer?>(null)
     var tools by mutableStateOf(Tools())
+
+    /** Подход, отмеченный последним: (упражнение раскладки, номер). Держит строку в свёрнутой карточке. */
+    var justRated by mutableStateOf<Pair<Uuid, Int>?>(null)
 
     // Навигация: стек экранов в такт истории браузера — «назад» на Android работает как в приложении.
     // Каждая запись истории помнит свою глубину; popstate сверяет стек с ней. Счётчика «пропустить
