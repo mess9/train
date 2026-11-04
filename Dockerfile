@@ -1,5 +1,5 @@
 # Образ server: API + PWA одним процессом. Сборка сама собирает app (wasm) и кладёт его в ресурсы.
-# Тесты здесь не идут: @QuarkusTest нужен Docker для Postgres — их гоняет CI отдельно.
+# Тесты сервера здесь не идут: @QuarkusTest нужен Docker для Postgres.
 
 FROM eclipse-temurin:21-jdk AS build
 # Node, который Kotlin качает для wasm-сборки, без libatomic не запускается
@@ -17,6 +17,11 @@ COPY server server
 # Кэш Gradle (зависимости, Node и binaryen для wasm) переживает пересборки образа
 RUN --mount=type=cache,target=/root/.gradle \
     sh gradlew --no-daemon :server:quarkusBuild
+
+# docker build --target test . — тесты без Postgres: core, client, cli
+FROM build AS test
+RUN --mount=type=cache,target=/root/.gradle \
+    sh gradlew --no-daemon :core:jvmTest :client:jvmTest :cli:test
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app

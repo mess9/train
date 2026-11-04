@@ -61,9 +61,15 @@ API требует заголовок `X-Api-Key`. В dev уже есть пол
 
 ```bash
 cp train.env.example train.env   # заполнить; train.env в .gitignore
+docker network create proxy      # один раз: на сервере это сеть Traefik
 docker compose --env-file train.env up -d --build
-docker compose --env-file train.env ps   # server — healthy, порт 7313
+docker compose --env-file train.env ps   # server — healthy, http://127.0.0.1:7313
 ```
+
+На сервере (shelezyaka) деплоит Jenkins-задача `train` по [Jenkinsfile](Jenkinsfile): тесты
+`core`, `client`, `cli` в образе (`docker build --target test .`), push в `localhost:5000`,
+`docker compose up` с секретом `train-env`, smoke-тест. Снаружи — `https://train.fil-lost.org`
+через туннель Cloudflare и Traefik.
 
 Бэкап пока ручной, дамп пишется на хост:
 

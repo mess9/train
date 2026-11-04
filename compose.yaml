@@ -1,6 +1,6 @@
-# Будущий деплой — Jenkinsfile, как у mediabots: образ из localhost:5000, секреты — Jenkins
+# Деплой — Jenkinsfile, как у mediabots: образ из localhost:5000, секреты — Jenkins
 # credential train-env (список переменных — train.env.example). Пути — абсолютные пути хоста:
-# compose будет запускаться из контейнера Jenkins, относительный путь указал бы внутрь него.
+# compose запускается из контейнера Jenkins, относительный путь указал бы внутрь него.
 # Руками: docker compose --env-file train.env up -d --build
 name: train
 
@@ -28,9 +28,19 @@ services:
         source: ${TRAIN_DATASET_DIR:-/mnt/safe_storage/data/train/exercises-dataset}
         target: /dataset
         read_only: true
-    # Пока нет Traefik и Cloudflare — прямой порт для телефона в локальной сети
+    # Снаружи — https://train.fil-lost.org: туннель Cloudflare → Traefik → сюда.
+    # Порт на хосте — только localhost, для проверок; TRAIN_BIND=0.0.0.0 откроет его в сеть
     ports:
-      - "${TRAIN_PORT:-7313}:7313"
+      - "${TRAIN_BIND:-127.0.0.1}:${TRAIN_PORT:-7313}:7313"
+    networks:
+      - default
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.train.rule=Host(`train.fil-lost.org`)
+      - traefik.http.routers.train.entrypoints=web
+      - traefik.http.services.train.loadbalancer.server.port=7313
     healthcheck:
       # в alpine есть wget из busybox, curl нет
       test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:7313/q/health"]
@@ -57,3 +67,8 @@ services:
 
 volumes:
   train-pgdata:
+
+# Общая сеть Traefik на сервере; локально — один раз `docker network create proxy`
+networks:
+  proxy:
+    external: true
