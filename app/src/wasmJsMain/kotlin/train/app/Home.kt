@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -191,8 +192,8 @@ fun PlanRow(date: String, title: String, trailing: @Composable () -> Unit, onCli
 }
 
 @Composable
-fun BlockDivider(title: String, sub: String, tint: Tint) {
-    Row(Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+fun BlockDivider(title: String, sub: String, tint: Tint, top: Dp = 22.dp, bottom: Dp = 10.dp) {
+    Row(Modifier.fillMaxWidth().padding(top = top, bottom = bottom), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Txt(title, ts(17.sp, tint.tint, FontWeight.Bold))
         if (sub.isNotEmpty()) Txt(sub, T.meta)
         Box(Modifier.weight(1f).height(1.dp).background(tint.line))

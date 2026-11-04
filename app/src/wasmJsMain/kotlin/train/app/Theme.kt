@@ -28,7 +28,11 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -40,16 +44,20 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import train.core.BlockRole
 import train.core.Rating
+import train.core.TimeInput
 
 // Цвета и размеры — из макета (тёмная тема)
 
@@ -66,9 +74,17 @@ object C {
     val Dash = Color(0xFF3A3F46)
     val Lime = Color(0xFFC8F25A)
     val OnLime = Color(0xFF111111)
-    val Easy = Color(0xFF6AB0FF)
-    val Normal = Color(0xFFE3E5E8)
-    val Hard = Color(0xFFFF9A52)
+    /** Оценки светофором: легко — зелёный, норм — жёлтый, тяжело — красный. */
+    val Easy = Color(0xFF5ACF7E)
+    val Normal = Color(0xFFF2C94C)
+    val Hard = Color(0xFFFF6B6B)
+    /** Удаление и «убрать»: красный, как «тяжело». */
+    val Danger = Color(0xFFFF6B6B)
+    val Heart = Color(0xFFFF5C8A)
+    /** Выполненное: серый текст и фон карточки. */
+    val Done = Color(0xFF6B7078)
+    val DoneCard = Color(0xFF16171A)
+    val DoneLine = Color(0xFF26282C)
     val NextBg = Color(0xFF23281A)
     val NextLine = Color(0xFF5E7A1F)
     val Thumb = Color(0xFFF2F2F0)
@@ -104,9 +120,16 @@ fun Rating.color() = when (this) {
 }
 
 fun Rating.onColor() = when (this) {
-    Rating.EASY -> Color(0xFF0B1A2C)
-    Rating.NORMAL -> C.OnLime
-    Rating.HARD -> Color(0xFF2A1404)
+    Rating.EASY -> Color(0xFF0B2414)
+    Rating.NORMAL -> Color(0xFF2A2004)
+    Rating.HARD -> Color(0xFF2E0B0B)
+}
+
+/** Невыбранная кнопка оценки: тёмный фон с оттенком её цвета. */
+fun Rating.dim() = when (this) {
+    Rating.EASY -> Color(0xFF17261C)
+    Rating.NORMAL -> Color(0xFF29251A)
+    Rating.HARD -> Color(0xFF2C1A1A)
 }
 
 fun Rating.label() = when (this) {
@@ -138,7 +161,10 @@ object T {
 
 @Composable
 fun Txt(text: String, style: TextStyle = T.body, modifier: Modifier = Modifier, align: TextAlign? = null, maxLines: Int = Int.MAX_VALUE) =
-    BasicText(text, modifier, if (align != null) style.copy(textAlign = align) else style, maxLines = maxLines)
+    BasicText(
+        text, modifier, if (align != null) style.copy(textAlign = align) else style,
+        overflow = if (maxLines == Int.MAX_VALUE) TextOverflow.Clip else TextOverflow.Ellipsis, maxLines = maxLines,
+    )
 
 // Иконки — контуры из макета, viewBox 24
 
@@ -152,18 +178,25 @@ enum class Icon(vararg val paths: String) {
     Home("M4 11l8-7 8 7", "M6 10v10h12V10"),
     History(circle(12f, 12f, 8f), "M12 8v4l3 2"),
     Ruler("M3 16l13-13 5 5-13 13z", "M7 12l2 2", "M10 9l2 2", "M13 6l2 2"),
+    Heart("M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"),
+    Note("M5 19h4l10-10-4-4L5 15z", "M13.5 6.5l4 4"),
+    Plus("M12 5v14", "M5 12h14"),
     Gear(circle(12f, 12f, 3f), "M10.1 4.64L10.52 2.11A10 10 0 0 1 13.48 2.11L13.9 4.64A7.6 7.6 0 0 1 15.86 5.45L17.95 3.96A10 10 0 0 1 20.04 6.05L18.55 8.14A7.6 7.6 0 0 1 19.36 10.1L21.89 10.52A10 10 0 0 1 21.89 13.48L19.36 13.9A7.6 7.6 0 0 1 18.55 15.86L20.04 17.95A10 10 0 0 1 17.95 20.04L15.86 18.55A7.6 7.6 0 0 1 13.9 19.36L13.48 21.89A10 10 0 0 1 10.52 21.89L10.1 19.36A7.6 7.6 0 0 1 8.14 18.55L6.05 20.04A10 10 0 0 1 3.96 17.95L5.45 15.86A7.6 7.6 0 0 1 4.64 13.9L2.11 13.48A10 10 0 0 1 2.11 10.52L4.64 10.1A7.6 7.6 0 0 1 5.45 8.14L3.96 6.05A10 10 0 0 1 6.05 3.96L8.14 5.45A7.6 7.6 0 0 1 10.1 4.64Z"),
 }
 
 private fun circle(cx: Float, cy: Float, r: Float) = "M${cx - r} ${cy}a$r $r 0 1 0 ${2 * r} 0a$r $r 0 1 0 ${-2 * r} 0"
 
+/** `fill` — залить контур (сердечко «понравилось»). */
 @Composable
-fun Ico(icon: Icon, size: Dp = 22.dp, color: Color = C.Soft, stroke: Float = 2f) {
+fun Ico(icon: Icon, size: Dp = 22.dp, color: Color = C.Soft, stroke: Float = 2f, fill: Boolean = false) {
     val paths = remember(icon) { icon.paths.map { PathParser().parsePathString(it).toPath() } }
     Canvas(Modifier.size(size)) {
         val k = this.size.width / 24f
         scale(k, k, pivot = androidx.compose.ui.geometry.Offset.Zero) {
-            paths.forEach { drawPath(it, color, style = Stroke(stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)) }
+            paths.forEach {
+                if (fill) drawPath(it, color)
+                drawPath(it, color, style = Stroke(stroke, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            }
         }
     }
 }
@@ -264,8 +297,8 @@ fun BackLink(label: String, onClick: () -> Unit) {
 fun Section(title: String) = Txt(title.uppercase(), T.sec, Modifier.padding(top = 22.dp, bottom = 10.dp))
 
 @Composable
-fun IconBtn(icon: Icon, onClick: () -> Unit, size: Dp = 44.dp, color: Color = C.Soft) {
-    Box(Modifier.size(size).clip(RoundedCornerShape(12.dp)).tap(onClick), contentAlignment = Alignment.Center) { Ico(icon, color = color) }
+fun IconBtn(icon: Icon, onClick: () -> Unit, size: Dp = 44.dp, color: Color = C.Soft, fill: Boolean = false, iconSize: Dp = 22.dp) {
+    Box(Modifier.size(size).clip(RoundedCornerShape(12.dp)).tap(onClick), contentAlignment = Alignment.Center) { Ico(icon, iconSize, color, fill = fill) }
 }
 
 /**
@@ -282,6 +315,8 @@ fun NumField(
     style: TextStyle = ts(16.sp, weight = FontWeight.SemiBold),
     align: TextAlign = TextAlign.Center,
     bg: Color = C.Field,
+    /** Единица мелко под числом: «кг», «повт» — колонка понятна без шапки. */
+    unit: String? = null,
 ) {
     BasicTextField(
         value = value,
@@ -291,16 +326,61 @@ fun NumField(
         textStyle = style.copy(textAlign = align),
         cursorBrush = SolidColor(C.Lime),
         modifier = modifier,
-        decorationBox = { inner ->
-            Box(
-                Modifier.clip(RoundedCornerShape(10.dp)).background(bg).border(1.dp, C.Border, RoundedCornerShape(10.dp)).padding(horizontal = 6.dp),
-                contentAlignment = if (align == TextAlign.Center) Alignment.Center else Alignment.CenterStart,
-            ) {
-                if (value.isEmpty() && placeholder.isNotEmpty()) Txt(placeholder, style.copy(color = C.Faint, textAlign = align), Modifier.fillMaxWidth())
+        decorationBox = { inner -> FieldBox(value.isEmpty(), placeholder, style, align, bg, unit, inner) },
+    )
+}
+
+/**
+ * Поле времени: набор как на микроволновке ([TimeInput]) — `130` → `1:30`. Курсор всегда в конце:
+ * цифры въезжают справа, стирание сдвигает обратно.
+ */
+@Composable
+fun TimeField(
+    id: String,
+    seconds: Int?,
+    onSeconds: (Int?) -> Unit,
+    modifier: Modifier = Modifier,
+    style: TextStyle = ts(16.sp, weight = FontWeight.SemiBold),
+    bg: Color = C.Field,
+    unit: String? = null,
+) {
+    var digits by remember(id) { mutableStateOf(seconds?.let(TimeInput::digitsOf).orEmpty()) }
+    // Значение поменялось не из поля (другая строка, сервер) — показать его
+    LaunchedEffect(seconds) { if (TimeInput.seconds(digits) != seconds) digits = seconds?.let(TimeInput::digitsOf).orEmpty() }
+    val text = TimeInput.text(digits)
+    BasicTextField(
+        value = TextFieldValue(text, TextRange(text.length)),
+        onValueChange = { v ->
+            if (v.text == text) return@BasicTextField
+            // Пятая цифра не принимается, как на микроволновке
+            val d = TimeInput.digits(v.text)
+            if (d == digits) return@BasicTextField
+            digits = d
+            onSeconds(TimeInput.seconds(d))
+        },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        textStyle = style.copy(textAlign = TextAlign.Center),
+        cursorBrush = SolidColor(C.Lime),
+        modifier = modifier,
+        decorationBox = { inner -> FieldBox(text.isEmpty(), "м:сс", style, TextAlign.Center, bg, unit, inner) },
+    )
+}
+
+@Composable
+private fun FieldBox(empty: Boolean, placeholder: String, style: TextStyle, align: TextAlign, bg: Color, unit: String?, inner: @Composable () -> Unit) {
+    Box(
+        Modifier.clip(RoundedCornerShape(10.dp)).background(bg).border(1.dp, C.Border, RoundedCornerShape(10.dp)).padding(horizontal = 6.dp),
+        contentAlignment = if (align == TextAlign.Center) Alignment.Center else Alignment.CenterStart,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(contentAlignment = Alignment.Center) {
+                if (empty && placeholder.isNotEmpty()) Txt(placeholder, style.copy(color = C.Faint, textAlign = align), Modifier.fillMaxWidth())
                 inner()
             }
-        },
-    )
+            if (unit != null) Txt(unit, ts(9.sp, C.Faint, FontWeight.Medium).copy(lineHeight = 10.sp), align = TextAlign.Center)
+        }
+    }
 }
 
 private fun filterNumber(s: String, decimal: Boolean): String? {
@@ -363,9 +443,13 @@ fun Sheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
 fun Gap(h: Dp) = Spacer(Modifier.height(h))
 
 @Composable
-fun Dot(color: Color, ring: Boolean = false) {
+fun Dot(color: Color, ring: Boolean = false, size: Dp = 8.dp) {
     Box(
-        Modifier.size(8.dp).clip(CircleShape)
-            .then(if (ring) Modifier.border(1.5.dp, C.Lime, CircleShape) else Modifier.background(color)),
+        Modifier.size(size).clip(CircleShape)
+            .then(if (ring) Modifier.border(1.5.dp, color, CircleShape) else Modifier.background(color)),
     )
 }
+
+/** Отметка выполненного подхода — точка цвета оценки; без оценки — серая. */
+@Composable
+fun RateDot(rating: Rating?, size: Dp = 12.dp) = Dot(rating?.color() ?: C.Done, size = size)

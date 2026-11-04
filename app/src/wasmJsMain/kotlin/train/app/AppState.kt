@@ -35,6 +35,7 @@ import train.core.LayoutBlock
 import train.core.Me
 import train.core.Measurement
 import train.core.Plan
+import train.core.Profile
 import train.core.RestTimer
 import train.core.Tools
 import train.core.Session
@@ -87,6 +88,8 @@ data class Cache(
     val workouts: List<Workout> = emptyList(),
     val measurements: List<Measurement> = emptyList(),
     val savedAt: Instant? = null,
+    /** Профиль: из него приложение берёт вибрацию. `null` — ещё не загружен (вибрации нет). */
+    val profile: Profile? = null,
 )
 
 const val KEY_KEY = "key"
@@ -127,6 +130,28 @@ class AppState(private val scope: CoroutineScope) {
     /** Версия сервера и сборка приложения на нём — с последнего обновления данных, не в кэше. */
     var serverInfo by mutableStateOf<ServerInfo?>(null)
         private set
+
+    /** Высота экранной клавиатуры, dp: на неё поднят весь экран (Main.kt). */
+    var keyboard by mutableStateOf(0)
+
+    /** Вибрация по сигналам — настройка профиля, по умолчанию выключена. */
+    val vibration get() = cache.profile?.vibration == true
+
+    /** Включить или выключить вибрацию: сразу в кэше, на сервер — профилем целиком. */
+    var profileError by mutableStateOf<String?>(null)
+        private set
+
+    fun setVibration(on: Boolean) {
+        val k = key ?: return
+        profileError = null
+        val p = (cache.profile ?: Profile()).copy(vibration = on)
+        saveCache(cache.copy(profile = p))
+        scope.launch {
+            runCatching { client(k).putProfile(p) }
+                .onSuccess { if (key == k) saveCache(cache.copy(profile = it)) }
+                .onFailure { profileError = "Не сохранилось на сервере (${linkText(linkOf(it)) ?: it.message ?: "ошибка"}) — при обновлении данных вернётся прежнее" }
+        }
+    }
 
     var rest by mutableStateOf<RestTimer?>(null)
     var tools by mutableStateOf(Tools())
@@ -290,8 +315,9 @@ class AppState(private val scope: CoroutineScope) {
                 val workouts = c.workouts(today.minus(DatePeriod(days = 120)), null)
                 val measurements = c.measurements()
                 val lastSets = exercises.map { it.id }.chunked(40).flatMap { c.lastSets(it) }
+                val profile = runCatching { c.profile() }.getOrNull() ?: cache.profile
                 if (key != k) return@launch
-                saveCache(withUnsent(Cache(me, plans, exercises, lastSets, workouts, measurements, now)))
+                saveCache(withUnsent(Cache(me, plans, exercises, lastSets, workouts, measurements, now, profile)))
                 if (link != Link.OTHER_USER) link = Link.ONLINE
                 poke()
             } catch (e: Throwable) {

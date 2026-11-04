@@ -42,7 +42,15 @@ fun main() {
 
 @Composable
 fun Root() {
-    Box(Modifier.fillMaxSize().background(C.Bg)) {
+    // Экранная клавиатура: весь экран — над ней, листы и прокрутка ведут себя как на меньшем экране
+    var keyboard by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            keyboard = keyboardHeight()
+            delay(120)
+        }
+    }
+    Box(Modifier.fillMaxSize().background(C.Bg).padding(bottom = keyboard.dp)) {
         // Вторая вкладка ничего не пишет: сессию держит та, у которой замок
         if (lockState() == "busy") {
             LockBusy()
@@ -94,16 +102,17 @@ fun Root() {
 @Composable
 private fun TimerSignals(app: AppState) {
     val restUntil = app.rest?.until
-    LaunchedEffect(restUntil) { signalAt(restUntil) }
+    LaunchedEffect(restUntil) { signalAt(restUntil) { app.vibration } }
     val timerUntil = app.tools.timerUntil
-    LaunchedEffect(timerUntil) { signalAt(timerUntil) }
+    LaunchedEffect(timerUntil) { signalAt(timerUntil) { app.vibration } }
 }
 
-private suspend fun signalAt(at: Instant?) {
+/** Звук — всегда, вибрация — если включена в профиле (читается в момент сигнала). */
+private suspend fun signalAt(at: Instant?, vibration: () -> Boolean) {
     val left = (at ?: return) - Clock.System.now()
     if (!left.isPositive()) return
     delay(left)
-    buzz()
+    if (vibration()) buzz()
     beep()
 }
 
@@ -236,19 +245,31 @@ private fun Settings(app: AppState) {
         Gap(10.dp)
         Btn("Сменить ключ", { app.connect(key); key = "" }, Modifier.fillMaxWidth(), Kind.Ghost, enabled = key.isNotBlank())
 
-        Section("Проверка")
-        Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.Card).tap { app.setPaused(!app.paused) }.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Txt("Пауза отправки", T.strong)
-                Txt("Отметки копятся в очереди и не уходят на сервер", T.meta)
-            }
-            Box(
-                Modifier.size(22.dp).clip(RoundedCornerShape(6.dp))
-                    .then(if (app.paused) Modifier.background(C.Lime) else Modifier.border(2.dp, C.Dash, RoundedCornerShape(6.dp))),
-            )
+        Section("Сигналы")
+        Check("Вибрация", "Конец отдыха и таймера — вибрацией. Звук есть всегда", app.vibration) { app.setVibration(!app.vibration) }
+        app.profileError?.let {
+            Gap(8.dp)
+            LateTag(it)
         }
+
+        Section("Проверка")
+        Check("Пауза отправки", "Отметки копятся в очереди и не уходят на сервер", app.paused) { app.setPaused(!app.paused) }
+    }
+}
+
+@Composable
+private fun Check(title: String, hint: String, on: Boolean, onToggle: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.Card).tap(onToggle).padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Txt(title, T.strong)
+            Txt(hint, T.meta)
+        }
+        Box(
+            Modifier.size(22.dp).clip(RoundedCornerShape(6.dp))
+                .then(if (on) Modifier.background(C.Lime) else Modifier.border(2.dp, C.Dash, RoundedCornerShape(6.dp))),
+        )
     }
 }

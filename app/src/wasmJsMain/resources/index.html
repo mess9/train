@@ -109,7 +109,16 @@
         } catch (e) {}
       }
 
-      return { lock: '?', wake, showGif, hideGif, beep };
+      // Экранная клавиатура: сколько CSS-пикселей снизу она закрывает. Kotlin опрашивает и поднимает
+      // экран на эту высоту — поле поиска и список над клавиатурой. Меньше 80 — панели браузера, не она
+      function keyboard() {
+        const vv = window.visualViewport;
+        if (!vv) return 0;
+        const h = Math.round(window.innerHeight - vv.height - vv.offsetTop);
+        return h >= 80 ? h : 0;
+      }
+
+      return { lock: '?', wake, showGif, hideGif, beep, keyboard };
     })();
 
     // Замок «одна вкладка — одна активная тренировка» берётся до старта приложения:
