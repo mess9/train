@@ -115,19 +115,40 @@ fun Session.replace(blockId: Uuid, itemId: Uuid, ex: Exercise, previous: List<Se
         { it.copy(exerciseId = ex.id, replacedFrom = it.replacedFrom ?: it.exerciseId, recordType = ex.recordType, perSide = ex.perSide) },
     ) { it.copy(exerciseId = ex.id, recordType = ex.recordType, perSide = ex.perSide) }
 
-/** «+ упражнение в блок»: подходов — по числу проходов блока, значения — из прошлого раза. */
-fun Session.addItem(blockId: Uuid, ex: Exercise, previous: List<SetFact> = emptyList()): Session {
+/**
+ * «+ упражнение в блок»: подходов — по числу проходов блока (или [count]), значения — из прошлого
+ * раза.
+ */
+fun Session.addItem(blockId: Uuid, ex: Exercise, previous: List<SetFact> = emptyList(), count: Int? = null): Session {
     val w = active ?: return this
     val block = block(blockId) ?: return this
     val item = LayoutItem(newId(), ex.id, ex.recordType, ex.perSide, sets = emptyList(), added = true)
-    val count = BlockPasses(block, sets).passCount.coerceAtLeast(1)
+    val passes = count ?: BlockPasses(block, sets).passCount.coerceAtLeast(1)
     val withItem = withExercise(ex, previous).layout(blockId) { it.copy(items = it.items + item) }
     val newBlock = withItem.block(blockId)!!
-    return (1..count).fold(withItem) { s, n ->
+    return (1..passes).fold(withItem) { s, n ->
         val last = s.previous.firstOrNull { it.exerciseId == ex.id && it.setNo == n && it.done && !it.deleted }
         s.record(newFact(w, newBlock, item, n, null, prefill(item.recordType, null, last)))
     }
 }
+
+/**
+ * Блок, которого не было в плане, сразу с первым упражнением: ещё круг или заминка. Пустого блока
+ * не бывает — передумал выбирать упражнение, блока нет. Заминка встаёт в конец, остальные — перед
+ * заминкой. У первого упражнения [sets] подходов: столько проходов будет у круга; следующие
+ * упражнения блока, как обычно, получают по числу проходов.
+ */
+fun Session.addBlock(role: BlockRole, ex: Exercise, previous: List<SetFact> = emptyList(), sets: Int = 1, title: String? = null): Session {
+    val w = active ?: return this
+    val block = LayoutBlock(newId(), role, title, emptyList())
+    val blocks = w.layout.blocks
+    val at = if (role == BlockRole.COOLDOWN) blocks.size else blocks.indexOfFirst { it.role == BlockRole.COOLDOWN }.takeIf { it >= 0 } ?: blocks.size
+    val withBlock = copy(workout = w.copy(layout = WorkoutLayout(blocks.take(at) + block + blocks.drop(at))))
+    return withBlock.addItem(block.id, ex, previous, sets.coerceAtLeast(1))
+}
+
+/** Есть ли в тренировке заминка: нет — экран предлагает её добавить. */
+val Session.hasCooldown get() = workout?.layout?.blocks?.any { it.role == BlockRole.COOLDOWN && it.items.any { i -> !i.removed } } == true
 
 /** Сдвинуть упражнение в блоке: `-1` — выше, `1` — ниже. Убранные пропускаются. */
 fun Session.move(blockId: Uuid, itemId: Uuid, direction: Int): Session = layout(blockId) { b ->
