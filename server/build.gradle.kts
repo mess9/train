@@ -7,8 +7,6 @@ plugins {
     alias(libs.plugins.quarkus)
 }
 
-version = "0.1.0"
-
 dependencies {
     // platform, а не enforcedPlatform: BOM не должен опускать версии, с которыми собран core
     implementation(platform(libs.quarkus.bom))

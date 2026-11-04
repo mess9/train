@@ -46,11 +46,16 @@ class ExerciseResource(
     fun get(@PathParam("id") id: String): Exercise =
         store.exercises(user.id, listOf(parseId(id))).values.firstOrNull() ?: throw notFound()
 
-    /** Своё упражнение; из источника берутся английское название, мышцы, снаряд, медиа и шаги. */
+    /**
+     * Новое упражнение: у админа — в общий справочник, у остальных — своё (ADR 0011). Из источника
+     * берутся английское название, мышцы, снаряд, медиа и шаги.
+     */
     @POST
     @Transactional
     fun create(body: ExerciseCreate): Exercise {
         if (body.nameRu.isBlank()) throw badRequest("nameRu пустое")
+        val shared = body.shared ?: user.admin
+        if (shared) user.requireAdmin()
         val src = body.sourceId?.let { source[it] ?: throw badRequest("нет в источнике: $it") }
         val e = Exercise(
             id = newId(),
@@ -66,6 +71,7 @@ class ExerciseResource(
             bodyweightFactor = body.bodyweightFactor,
             mediaKey = src?.info?.mediaKey,
             instructions = src?.stepsRu.orEmpty(),
+            shared = shared,
         )
         validate(e)
         db.update(
@@ -74,20 +80,21 @@ class ExerciseResource(
               equipment, implements, bodyweight_factor, record_type, per_side, media_key, instructions)
             values (?, ?, ?, ?, ?, cast(? as jsonb), cast(? as jsonb), ?, ?, ?, ?, ?, ?, cast(? as jsonb))
             """.trimIndent(),
-            e.id, user.id, e.sourceId, e.nameRu, e.nameEn, Json.of(strings, e.musclesPrimary), Json.of(strings, e.musclesSecondary),
+            e.id, if (shared) null else user.id, e.sourceId, e.nameRu, e.nameEn, Json.of(strings, e.musclesPrimary), Json.of(strings, e.musclesSecondary),
             e.equipment, e.implements, e.bodyweightFactor, e.recordType, e.perSide, e.mediaKey, Json.of(strings, e.instructions),
         )
         return e
     }
 
-    /** Правятся только свои упражнения; общий справочник — миграциями. */
+    /** Свои упражнения правит владелец, общий справочник — админ. */
     @PATCH
     @Path("{id}")
     @Transactional
     fun patch(@PathParam("id") id: String, body: ExercisePatch): Exercise {
         val exId = parseId(id)
-        val old = db.one("select * from exercise where id = ? and owner_user_id = ? and deleted_at is null for update", exId, user.id) { it.exercise() }
+        val old = db.one("select * from exercise where id = ? and ${Store.VISIBLE} for update", exId, user.id) { it.exercise() }
             ?: throw notFound()
+        if (old.shared) user.requireAdmin()
         val e = old.copy(
             nameRu = body.nameRu?.trim() ?: old.nameRu,
             nameEn = body.nameEn ?: old.nameEn,

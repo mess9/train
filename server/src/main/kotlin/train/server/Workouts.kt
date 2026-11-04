@@ -23,24 +23,25 @@ class WorkoutResource(
     private val store: Store,
     private val days: Days,
 ) {
+    /** `from`, `to` — по дню тренировки: дате старта по часам телефона. */
     @GET
     fun list(@QueryParam("from") from: String?, @QueryParam("to") to: String?): List<Workout> {
-        val start = parseDate(from)?.let(days::start)
-        val end = parseDate(to)?.let(days::end)
+        val start = parseDate(from)
+        val end = parseDate(to)
         return db.list(
             "select * from workout where user_id = ? and not deleted " +
-                "and (cast(? as timestamptz) is null or started_at >= ?) and (cast(? as timestamptz) is null or started_at < ?) " +
+                "and (cast(? as date) is null or start_date >= ?) and (cast(? as date) is null or start_date <= ?) " +
                 "order by started_at desc",
             user.id, start, start, end, end,
         ) { it.workout() }
     }
 
-    /** Подходы — включая удалённые: на телефоне они прячут строки раскладки. */
+    /** Подходы — включая удалённые: на телефоне они прячут строки раскладки. И замеры тренировки. */
     @GET
     @Path("{id}")
     fun get(@PathParam("id") id: String): WorkoutDetail {
         val w = store.workout(user.id, parseId(id)) ?: throw notFound()
-        return WorkoutDetail(w, store.sets(w.id))
+        return WorkoutDetail(w, store.sets(w.id), store.measurementsOf(user.id, w.id))
     }
 
     /**
@@ -59,19 +60,22 @@ class WorkoutResource(
         }
         // План могли окончательно удалить, пока телефон был без сети, — тренировку всё равно принять
         val planId = body.data.planId?.takeIf { store.plan(user.id, it, forUpdate = true) != null }
-        val put = body.copy(data = body.data.copy(planId = planId))
+        // День тренировки считает сервер: по смещению телефона, без него — по своему поясу
+        val put = body.copy(data = body.data.copy(planId = planId, date = body.data.localDate(days.zone)))
 
         return sync("workout", Workout.serializer(), put, load, db, { store.workoutRow(workoutId)!!.stored.record }) { w, rev ->
             val n = db.update(
                 """
-                insert into workout (id, user_id, plan_id, plan_version, started_at, finished_at, comment, layout, received_at, rev, op_id, deleted)
-                values (?, ?, ?, ?, ?, ?, ?, cast(? as jsonb), now(), ?, ?, ?)
+                insert into workout (id, user_id, plan_id, plan_version, started_at, utc_offset_sec, start_date, finished_at, comment,
+                  layout, received_at, rev, op_id, deleted)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, cast(? as jsonb), now(), ?, ?, ?)
                 on conflict (id) do update set plan_id = excluded.plan_id, plan_version = excluded.plan_version,
-                  started_at = excluded.started_at, finished_at = excluded.finished_at, comment = excluded.comment,
+                  started_at = excluded.started_at, utc_offset_sec = excluded.utc_offset_sec, start_date = excluded.start_date,
+                  finished_at = excluded.finished_at, comment = excluded.comment,
                   layout = excluded.layout, received_at = now(), rev = excluded.rev, op_id = excluded.op_id, deleted = excluded.deleted
                 where workout.rev = excluded.rev - 1 and workout.user_id = excluded.user_id
                 """.trimIndent(),
-                w.id, user.id, w.planId, w.planVersion, w.startedAt, w.finishedAt, w.comment,
+                w.id, user.id, w.planId, w.planVersion, w.startedAt, w.utcOffset?.totalSeconds, w.date, w.finishedAt, w.comment,
                 Json.of(WorkoutLayout.serializer(), w.layout), rev, put.opId, w.deleted,
             )
             if (n > 0 && w.planId != null && !w.deleted) {
@@ -123,7 +127,10 @@ class WorkoutResource(
         }
     }
 
-    /** План против факта по снимку в раскладке; прошлое и вес тела — на момент старта. */
+    /**
+     * План против факта по снимку в раскладке; прошлое — до старта, вес тела — взвешивание на
+     * тренировке или последнее до старта, рост — из профиля.
+     */
     @GET
     @Path("{id}/compare")
     fun compare(@PathParam("id") id: String): Comparison {
@@ -136,7 +143,9 @@ class WorkoutResource(
             facts = facts,
             exercises = store.exercises(user.id, exerciseIds.toSet()),
             previous = store.lastSets(user.id, exerciseIds.toSet(), before = w.startedAt, exclude = w.id),
-            bodyweight = store.bodyweight(user.id, w.startedAt),
+            bodyweight = store.bodyweight(user.id, w),
+            heightCm = store.profile(user.id).heightCm,
+            measurements = store.measurementsOf(user.id, w.id),
         )
     }
 }

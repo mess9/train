@@ -21,6 +21,9 @@ import train.core.ApiKey
 import train.core.KeyCreate
 import train.core.KeyCreated
 import train.core.Me
+import train.core.User
+import train.core.UserCreate
+import train.core.UserCreated
 import train.core.newId
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -36,6 +39,12 @@ class CurrentUser {
     var keyId: Uuid? = null
 
     val id: Uuid get() = me?.userId ?: throw apiError(Response.Status.UNAUTHORIZED, "нет ключа")
+
+    val admin: Boolean get() = me?.admin == true
+
+    fun requireAdmin() {
+        if (!admin) throw apiError(Response.Status.FORBIDDEN, "только для админа")
+    }
 }
 
 object Keys {
@@ -57,10 +66,31 @@ class Users(
 
     /** Владелец действующего ключа и ID ключа. */
     fun byKey(key: String): Pair<Me, Uuid>? = db.one(
-        "select u.id, u.email, u.name, k.id as key_id from api_key k join app_user u on u.id = k.user_id " +
+        "select u.id, u.email, u.name, u.admin, k.id as key_id from api_key k join app_user u on u.id = k.user_id " +
             "where k.key_hash = ? and k.revoked_at is null",
         Keys.hash(key),
-    ) { Me(it.uuidReq("id"), it.string("email")!!, it.string("name")) to it.uuidReq("key_id") }
+    ) { Me(it.uuidReq("id"), it.string("email")!!, it.string("name"), it.bool("admin")) to it.uuidReq("key_id") }
+
+    /**
+     * Новый пользователь с первым ключом — например, друг (ADR 0011). Справочник у всех общий,
+     * остальное — своё. Такая почта уже есть — `409`: второй ключ выдаёт себе сам пользователь.
+     */
+    @Transactional
+    fun create(body: UserCreate): UserCreated {
+        val email = body.email.trim().lowercase()
+        if (!EMAIL.matches(email)) throw badRequest("не почта: ${body.email}")
+        if (db.one("select 1 from app_user where email = ?", email) { true } != null) {
+            throw apiError(Response.Status.CONFLICT, "пользователь $email уже есть")
+        }
+        val id = ensure(email, body.name?.trim()?.ifEmpty { null })
+        return UserCreated(user(id)!!, addKey(id, body.keyLabel ?: "первый"))
+    }
+
+    fun user(id: Uuid): User? = db.one("select * from app_user where id = ?", id) { it.user() }
+
+    fun list(): List<User> = db.list("select * from app_user order by created_at") { it.user() }
+
+    private fun Row.user() = User(uuidReq("id"), string("email")!!, string("name"), bool("admin"), instantReq("created_at"))
 
     /** Пользователь с этой почтой — найти или создать. */
     @Transactional
@@ -94,11 +124,14 @@ class Users(
         val email = bootstrapEmail.orElse(null) ?: return
         val key = bootstrapKey.orElse(null) ?: return log.warn("train.bootstrap.email задан без train.bootstrap.key — пропускаю")
         val userId = ensure(email)
+        db.update("update app_user set admin = true where id = ?", userId)
         // Отозванный bootstrap-ключ не возвращается: хеш уникален, нужен новый ключ в окружении
         if (db.one("select 1 from api_key where key_hash = ?", Keys.hash(key)) { true } == null) addKey(userId, "bootstrap", key)
         log.info("Пользователь $email готов")
     }
 }
+
+private val EMAIL = Regex("""[^@\s]+@[^@\s]+""")
 
 /** Ключ из `X-Api-Key` (ADR 0008). Открыты только `/api/info` и оболочка приложения. */
 class AuthFilter(private val users: Users, private val current: CurrentUser) {
@@ -134,5 +167,21 @@ class MeResource(private val user: CurrentUser, private val users: Users) {
     @Path("keys/{id}")
     fun revoke(@PathParam("id") id: String) {
         if (!users.revoke(user.id, parseId(id))) throw notFound()
+    }
+}
+
+/** Пользователи — только админу (ADR 0011). */
+@Path("$API_PREFIX/admin/users")
+class AdminResource(private val user: CurrentUser, private val users: Users) {
+    @GET
+    fun list(): List<User> {
+        user.requireAdmin()
+        return users.list()
+    }
+
+    @POST
+    fun create(body: UserCreate): UserCreated {
+        user.requireAdmin()
+        return users.create(body)
     }
 }

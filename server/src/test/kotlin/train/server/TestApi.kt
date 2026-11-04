@@ -105,3 +105,13 @@ class TestApi(private val key: String?) {
         )
     }
 }
+
+/** Новый пользователь с ключом: тесты не видят данных друг друга. */
+fun Users.newApi(): TestApi = TestApi(addKey(ensure("${newId()}@test"), "test").key)
+
+/** Новый админ (ADR 0011): в тестах — правкой базы, как у владельца после V2. */
+fun Users.newAdmin(db: Db): TestApi {
+    val id = ensure("${newId()}@test")
+    db.update("update app_user set admin = true where id = ?", id)
+    return TestApi(addKey(id, "test").key)
+}

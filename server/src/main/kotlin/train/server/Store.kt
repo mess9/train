@@ -7,6 +7,7 @@ import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.plus
 import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.todayIn
+import kotlinx.datetime.UtcOffset
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import org.eclipse.microprofile.config.inject.ConfigProperty
@@ -20,6 +21,8 @@ import train.core.RecordType
 import train.core.SetFact
 import train.core.Workout
 import train.core.WorkoutLayout
+import train.core.Profile
+import train.core.bodyweightFor
 import train.core.planStatus
 import java.util.Optional
 import kotlin.time.Clock
@@ -84,11 +87,23 @@ class Store(private val db: Db, private val days: Days) {
         return db.list(sql, *args.toTypedArray()) { it.setFact() }
     }
 
-    /** Последний замер веса тела до момента — для объёма. */
-    fun bodyweight(userId: Uuid, at: Instant): Double? = db.one(
-        "select value from measurement where user_id = ? and type = ? and not deleted and measured_at <= ? order by measured_at desc limit 1",
-        userId, BODYWEIGHT, at,
-    ) { it.double("value") }
+    /** Замеры, привязанные к тренировке. */
+    fun measurementsOf(userId: Uuid, workoutId: Uuid): List<Measurement> = db.list(
+        "select * from measurement where user_id = ? and workout_id = ? and not deleted order by measured_at",
+        userId, workoutId,
+    ) { it.measurement() }
+
+    /** Вес тела для объёма — по правилу [bodyweightFor]: взвешивание на тренировке или последнее до старта. */
+    fun bodyweight(userId: Uuid, w: Workout): Double? {
+        val before = db.list(
+            "select * from measurement where user_id = ? and type = ? and not deleted and measured_at <= ? order by measured_at desc limit 1",
+            userId, BODYWEIGHT, w.startedAt,
+        ) { it.measurement() }
+        return bodyweightFor(w, before + measurementsOf(userId, w.id))
+    }
+
+    fun profile(userId: Uuid): Profile =
+        db.one("select profile from app_user where id = ?", userId) { it.json("profile", Profile.serializer()) } ?: Profile()
 
     companion object {
         /** Справочник пользователя: общие упражнения и его собственные. Параметр — id пользователя. */
@@ -115,6 +130,7 @@ fun Row.exercise() = Exercise(
     bodyweightFactor = double("bodyweight_factor"),
     mediaKey = string("media_key"),
     instructions = json("instructions", strings),
+    shared = uuid("owner_user_id") == null,
 )
 
 fun Row.plan(today: LocalDate): Plan {
@@ -138,6 +154,8 @@ fun Row.workout() = Workout(
     planId = uuid("plan_id"),
     planVersion = int("plan_version"),
     startedAt = instantReq("started_at"),
+    utcOffset = int("utc_offset_sec")?.let { UtcOffset(seconds = it) },
+    date = date("start_date"),
     finishedAt = instant("finished_at"),
     comment = string("comment"),
     layout = json("layout", WorkoutLayout.serializer()),

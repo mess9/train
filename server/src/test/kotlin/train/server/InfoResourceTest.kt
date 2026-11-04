@@ -4,8 +4,10 @@ import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import org.hamcrest.CoreMatchers.containsString
 import org.hamcrest.CoreMatchers.equalTo
+import org.hamcrest.CoreMatchers.nullValue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.assertNotNull
+import train.core.TRAIN_VERSION
 
 @QuarkusTest
 class InfoResourceTest {
@@ -14,7 +16,9 @@ class InfoResourceTest {
         given().get("/api/info").then()
             .statusCode(200)
             .body("name", equalTo("train"))
-            .body("build", equalTo("dev"))
+            // Вне сборки образа коммита нет: версия — 0.2.0+dev, номера сборки нет
+            .body("version", equalTo("$TRAIN_VERSION+dev"))
+            .body("build", nullValue())
     }
 
     /** По `app` приложение узнаёт, что на сервере уже другая сборка. */

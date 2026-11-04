@@ -7,15 +7,22 @@ import jakarta.ws.rs.core.MediaType
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import train.core.API_PREFIX
 import train.core.ServerInfo
+import train.core.TRAIN_VERSION
+import train.core.fullVersion
+import java.util.Optional
 
 @Path("$API_PREFIX/info")
 class InfoResource(
-    @ConfigProperty(name = "quarkus.application.version") private val version: String,
-    @ConfigProperty(name = "train.build", defaultValue = "dev") private val build: String,
+    @ConfigProperty(name = "train.commit") private val commit: Optional<String>,
+    @ConfigProperty(name = "train.build") private val build: Optional<String>,
 ) {
+    /** `0.2.0+5cdae85`; номер сборки Jenkins — отдельно (ADR 0009). */
     @GET
     @Produces(MediaType.APPLICATION_JSON)
-    fun info() = ServerInfo(name = "train", version = version, build = build, app = APP)
+    fun info(): ServerInfo {
+        val c = commit.orElse(null)?.takeIf { it.isNotBlank() && it != "dev" }
+        return ServerInfo(name = "train", version = fullVersion(TRAIN_VERSION, c), commit = c, build = build.orElse(null), app = APP)
+    }
 
     private companion object {
         /** Хеш из `app.<хеш>.js` в отдаваемом index.html (`server:appDist`); без сборки приложения — null. */
