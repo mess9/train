@@ -13,6 +13,8 @@
 | `app` | Compose Multiplatform, wasmJs — PWA для телефона |
 
 `spike/` — отдельная проверка Compose/Wasm на телефоне (шаг 0 плана), в сборку не входит.
+`skills/gym/` — скилл для агента: рабочий цикл и формат плана; подключается через
+`skillshare link skills/gym --name gym`.
 
 ## Запуск
 
@@ -71,7 +73,7 @@ docker compose --env-file train.env ps   # server — healthy, http://127.0.0.1:
 `docker compose up` с секретом `train-env`, smoke-тест. Снаружи — `https://train.fil-lost.org`
 через туннель Cloudflare и Traefik.
 
-Бэкап пока ручной, дамп пишется на хост:
+На сервере база попадает в ночные дампы shelezyaka (`train.sql.gz`). Дамп руками:
 
 ```bash
 docker exec train-train_postgres-1 pg_dump -U train -Fc train > train-$(date +%F).dump

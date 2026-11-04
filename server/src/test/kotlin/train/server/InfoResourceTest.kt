@@ -30,6 +30,15 @@ class InfoResourceTest {
             .body(containsString(js))
     }
 
+    /** Без хеша в имени — только с проверкой у сервера, иначе Cloudflare держит старую сборку. */
+    @Test
+    fun unhashedFilesAreNotCached() {
+        for (path in listOf("/", "/index.html", "/sw.js", "/manifest.webmanifest")) {
+            given().get(path).then().statusCode(200).header("Cache-Control", equalTo("no-cache"))
+        }
+        given().get("/${appJs()}").then().header("Cache-Control", containsString("immutable"))
+    }
+
     @Test
     fun wasmIsCompressed() {
         val wasm = given().get("/${appJs()}").then().statusCode(200).extract().asString()

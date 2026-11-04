@@ -344,15 +344,23 @@ MockEngine. Решения по ходу:
   (живые данные сервисов — в `data/`); другой путь — `TRAIN_DATASET_DIR`. Длинная запись
   `bind`: без каталога на хосте контейнер не стартует.
 - База — именованный том `train-pgdata`, как у mediabots.
-- Порт `7313` опубликован напрямую (`TRAIN_PORT`) — для телефона в локальной сети, пока нет
-  Traefik и Cloudflare; при подключении туннеля заменить сетью `proxy` и метками Traefik.
+- Снаружи — сеть `proxy` и метки Traefik (`train.fil-lost.org`, entrypoint `web`); порт на
+  хосте — только `127.0.0.1:7313`, для проверок (`TRAIN_BIND`, `TRAIN_PORT`).
 - Образ: сборка на `eclipse-temurin:21-jdk` (плюс `libatomic1` — без неё не запускается Node,
   которого Kotlin качает для wasm), запуск — `eclipse-temurin:21-jre-alpine` под uid 1000,
-  ~110 МБ. Кэш Gradle — BuildKit cache mount. Тесты в образе не идут — это дело CI.
+  ~110 МБ. Кэш Gradle — BuildKit cache mount. Стадия `test` гоняет тесты `core`, `client`, `cli`
+  (`docker build --target test .`); тестам `server` нужен Docker для Postgres — они пока локально.
 - Healthcheck — в `compose.yaml` через `wget` (в alpine нет curl). `TZ: Asia/Yerevan`, как у
   mediabots: от него считается «сегодня», если не задан `TRAIN_ZONE`.
 
-На сервер не разворачивали — это вместе с CI (следующие итерации, п. 1).
+**Развёрнуто на shelezyaka 2026-11-04** — Jenkins-задача `train` по `Jenkinsfile`, как у
+mediabots: тесты в образе → сборка → push в `localhost:5000` → проверка датасета →
+`docker compose up` с credential `train-env` → smoke-тест → webhook в n8n. Первая сборка — около
+8 минут. Адрес — `https://train.fil-lost.org` (туннель → Traefik), Cloudflare Access пока нет,
+только ключ. База — в ночных дампах shelezyaka (`train.sql.gz`) и в проверке восстановления.
+- Quarkus в проде отдаёт статику как `public, immutable, max-age=86400`, и Cloudflare держал
+  `sw.js` на краю. Файлам без хеша в имени (`/`, `index.html`, `sw.js`, манифест) сервер
+  ставит `no-cache` (`StaticCache`).
 
 ## Шаг 7. Агент и данные
 
@@ -362,6 +370,16 @@ MockEngine. Решения по ходу:
 - Стартовый справочник: агент смотрит историю Hevy / GymKeeper и оборудование, подбирает
   несколько десятков упражнений через `gym exercise search` и добавляет с ru-названиями.
 - Первый настоящий план на ближайшую тренировку.
+
+**Сделано 2026-11-04.**
+- Скилл подключён через skillshare: `skillshare link skills/gym --name gym` → claude и codex.
+- Справочник — 37 упражнений: 31 из датасета (с медиа) и 6 своих, которых в датасете нет
+  (планка, птица-собака, супермен, жим гантели с пола одной рукой и двумя, переноска гантели в
+  одной руке). Доля веса тела — только у отжиманий, брусьев и подтягиваний; у остальных
+  `null`, пока не решим коэффициенты.
+- Профиль: оборудование и правила владельца в `notes` — скилл читает их первым шагом.
+- План A2 на 2026-11-04 из черновика Hevy. Переноска «чемодан» — `WEIGHT_TIME` на сторону без
+  целевых секунд: дистанции в типах записи нет, время владелец запишет фактическое.
 
 ## Порядок и параллельность
 
@@ -388,14 +406,9 @@ MockEngine. Решения по ходу:
 ## Следующие итерации
 
 Примерно в порядке пользы:
-1. **CI/CD по образцу `c:\java\my\mediabots\`.** Репозиторий `mess9/train` в Gitea. В Jenkins —
-   pipeline из SCM, credential `gitea-registry`.
-   - `Jenkinsfile`: сборка образа → тесты → push в `localhost:5000/mess9/train-server` (номер
-     сборки и `latest`) → `docker compose up -d --remove-orphans` с credential `train-env` →
-     smoke-тест (контейнеры healthy и не перезапускаются) → webhook в n8n.
-   - `@QuarkusTest` с Postgres в CI — Testcontainers через docker socket; проверить при
-     настройке.
-2. **Доступ снаружи**: Cloudflare Tunnel + Access (Google / почта для телефона, сервисный токен
+1. ~~CI/CD~~ — сделано, см. шаг 6. Осталось: `@QuarkusTest` с Postgres в CI — Testcontainers
+   через docker socket.
+2. **Доступ снаружи**: туннель есть; Cloudflare Access (Google / почта для телефона, сервисный токен
    для CLI), почта из JWT → пользователь.
 3. **Импорт истории** Hevy / GymKeeper:
    - Codex через MCP выгружает в файлы всё доступное.
