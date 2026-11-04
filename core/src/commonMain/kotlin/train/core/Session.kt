@@ -1,5 +1,8 @@
 package train.core
 
+import kotlinx.datetime.UtcOffset
+import kotlinx.datetime.asTimeZone
+import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.Serializable
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
@@ -35,15 +38,22 @@ data class Session(
     fun block(blockId: Uuid) = workout?.layout?.blocks?.firstOrNull { it.id == blockId }
 }
 
-/** Начать тренировку: снимок целей плана (или своя раскладка) встаёт в очередь первым. */
+/**
+ * Начать тренировку: снимок целей плана (или своя раскладка) встаёт в очередь первым.
+ * [offset] — смещение пояса телефона сейчас: по нему сервер считает день тренировки.
+ */
 fun Session.start(
     plan: Plan?,
     layout: WorkoutLayout,
     exercises: List<Exercise>,
     previous: List<SetFact>,
     now: Instant,
+    offset: UtcOffset? = null,
 ): Session {
-    val w = Workout(newId(), plan?.id, plan?.version, startedAt = now, layout = layout)
+    val w = Workout(
+        newId(), plan?.id, plan?.version, startedAt = now, utcOffset = offset,
+        date = offset?.let { now.toLocalDateTime(it.asTimeZone()).date }, layout = layout,
+    )
     return copy(workout = w, sets = emptyList(), exercises = exercises, previous = previous).record(w)
 }
 
@@ -135,6 +145,13 @@ fun Session.finish(at: Instant): Session {
     val w = active ?: return this
     return record(w.copy(finishedAt = at))
 }
+
+/** Сердечко упражнению. Можно и после завершения — на экране «Готово». */
+fun Session.like(blockId: Uuid, itemId: Uuid, liked: Boolean): Session = anyItem(blockId, itemId) { it.copy(liked = liked) }
+
+/** Заметка владельца к упражнению для агента; пустая — убрать. Можно и после завершения. */
+fun Session.itemComment(blockId: Uuid, itemId: Uuid, text: String): Session =
+    anyItem(blockId, itemId) { it.copy(comment = text.trim().ifEmpty { null }) }
 
 fun Session.comment(text: String): Session {
     val w = workout ?: return this
@@ -237,6 +254,14 @@ private fun newFact(w: Workout, block: LayoutBlock, item: LayoutItem, setNo: Int
 private fun Session.layout(blockId: Uuid, change: (LayoutBlock) -> LayoutBlock): Session {
     val w = active ?: return this
     val blocks = w.layout.blocks.map { if (it.id == blockId) change(it) else it }
+    if (blocks == w.layout.blocks) return this
+    return record(w.copy(layout = WorkoutLayout(blocks)))
+}
+
+/** Правка упражнения в раскладке тренировки — идущей или завершённой, но ещё не закрытой. */
+private fun Session.anyItem(blockId: Uuid, itemId: Uuid, change: (LayoutItem) -> LayoutItem): Session {
+    val w = workout?.takeIf { !it.deleted } ?: return this
+    val blocks = w.layout.blocks.map { b -> if (b.id == blockId) b.copy(items = b.items.map { if (it.id == itemId) change(it) else it }) else b }
     if (blocks == w.layout.blocks) return this
     return record(w.copy(layout = WorkoutLayout(blocks)))
 }

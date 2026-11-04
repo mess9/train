@@ -1,5 +1,6 @@
 package train.core
 
+import kotlinx.datetime.LocalDate
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -42,6 +43,12 @@ data class ItemComparison(
     val replacedFrom: Uuid? = null,
     val added: Boolean = false,
     val removed: Boolean = false,
+    /** Сердечко владельца: упражнение очень понравилось. */
+    val liked: Boolean = false,
+    /** Заметка владельца к упражнению. */
+    val comment: String? = null,
+    /** Заметка плана к упражнению. */
+    val note: String? = null,
     val sets: List<SetComparison>,
 )
 
@@ -80,10 +87,16 @@ data class Comparison(
     val planId: Uuid? = null,
     val planVersion: Int? = null,
     val startedAt: Instant,
+    /** День тренировки по часам телефона. */
+    val date: LocalDate? = null,
     val finishedAt: Instant? = null,
     val comment: String? = null,
-    /** Собственный вес, с которым посчитан объём. */
+    /** Собственный вес, с которым посчитан объём ([bodyweightFor]). */
     val bodyweightKg: Double? = null,
+    /** Рост из профиля, см. В объём не входит. */
+    val heightCm: Double? = null,
+    /** Замеры, привязанные к тренировке. */
+    val measurements: List<Measurement> = emptyList(),
     val totals: Totals,
     val blocks: List<BlockComparison>,
     val previous: List<PreviousResult>,
@@ -97,7 +110,8 @@ data class Comparison(
  * в раскладке тренировки, а не текущая версия.
  *
  * @param previous прошлые факты этих упражнений из других тренировок
- * @param bodyweight последний замер собственного веса до тренировки
+ * @param bodyweight вес тела для объёма — [bodyweightFor]
+ * @param measurements замеры, привязанные к тренировке
  */
 fun compare(
     workout: Workout,
@@ -105,6 +119,8 @@ fun compare(
     exercises: Map<Uuid, Exercise>,
     previous: List<SetFact> = emptyList(),
     bodyweight: Double? = null,
+    heightCm: Double? = null,
+    measurements: List<Measurement> = emptyList(),
 ): Comparison {
     val done = facts.filter { it.workoutId == workout.id && it.done && !it.deleted }
     val doneByItem = done.groupBy { it.itemId }
@@ -124,7 +140,10 @@ fun compare(
                     else -> null
                 }
             }
-            ItemComparison(item.id, item.exerciseId, name(item.exerciseId), item.replacedFrom, item.added, item.removed, sets)
+            ItemComparison(
+                item.id, item.exerciseId, name(item.exerciseId), item.replacedFrom, item.added, item.removed,
+                item.liked, item.comment, item.note, sets,
+            )
         })
     }
 
@@ -149,9 +168,12 @@ fun compare(
         planId = workout.planId,
         planVersion = workout.planVersion,
         startedAt = workout.startedAt,
+        date = workout.date,
         finishedAt = workout.finishedAt,
         comment = workout.comment,
         bodyweightKg = bodyweight,
+        heightCm = heightCm,
+        measurements = measurements.filter { it.workoutId == workout.id && !it.deleted }.sortedBy { it.measuredAt },
         totals = Totals(
             durationSec = duration,
             setsPlanned = all.count { it.target != null },

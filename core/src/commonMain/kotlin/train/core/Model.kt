@@ -4,6 +4,7 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonClassDiscriminator
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -53,6 +54,8 @@ data class Exercise(
     val bodyweightFactor: Double? = null,
     val mediaKey: String? = null,
     val instructions: List<String> = emptyList(),
+    /** Из общего справочника — его видят все, правит админ; иначе — своё упражнение (ADR 0011). */
+    val shared: Boolean = false,
 )
 
 /** Профиль: его читает агент, когда подбирает веса и упражнения. */
@@ -63,6 +66,8 @@ data class Profile(
     val equipment: String? = null,
     val notes: String? = null,
     val vibration: Boolean = false,
+    /** Рост, см. В объём не входит (в нём нет расстояния), агент видит его рядом с весом тела. */
+    val heightCm: Double? = null,
 )
 
 /**
@@ -84,7 +89,7 @@ sealed interface SyncRecord {
 @Serializable
 data class SyncPut<T>(val data: T, val baseRev: Long, val opId: Uuid)
 
-/** Тип замера собственного веса: последний до тренировки идёт в объём. */
+/** Тип замера собственного веса: в объём идёт [bodyweightFor]. */
 const val BODYWEIGHT = "weight"
 
 @Serializable
@@ -96,9 +101,32 @@ data class Measurement(
     val value: Double,
     val unit: String,
     val measuredAt: Instant,
+    /** Замер сделан на этой тренировке — обычно сразу после неё ([workoutForMeasurement]). */
     val workoutId: Uuid? = null,
     override val rev: Long = 0,
     override val deleted: Boolean = false,
 ) : SyncRecord {
     override fun withRev(rev: Long) = copy(rev = rev)
 }
+
+/**
+ * Вес тела для объёма тренировки: взвешивание на этой тренировке, иначе последнее до её старта.
+ * Взвешивание после тренировки ближе к весу на ней, чем недельной давности.
+ */
+fun bodyweightFor(workout: Workout, measurements: List<Measurement>): Double? {
+    val weights = measurements.filter { it.type == BODYWEIGHT && !it.deleted }
+    return (weights.filter { it.workoutId == workout.id }.maxByOrNull { it.measuredAt }
+        ?: weights.filter { it.measuredAt <= workout.startedAt }.maxByOrNull { it.measuredAt })?.value
+}
+
+/** Сколько после завершения замер ещё относится к тренировке. */
+val MEASUREMENT_AFTER_WORKOUT = 3.hours
+
+/**
+ * К какой тренировке привязать замер в момент [at]: к идущей или к завершённой не раньше
+ * [MEASUREMENT_AFTER_WORKOUT] назад, самой поздней. `null` — замер сам по себе.
+ */
+fun workoutForMeasurement(workouts: Collection<Workout>, at: Instant): Uuid? = workouts
+    .filter { !it.deleted && it.startedAt <= at && (it.finishedAt == null || at - it.finishedAt <= MEASUREMENT_AFTER_WORKOUT) }
+    .filter { it.finishedAt != null || at - it.startedAt <= 12.hours }
+    .maxByOrNull { it.startedAt }?.id

@@ -22,8 +22,19 @@ val TrainJson = Json {
 }
 
 /**
- * [build] — номер сборки Jenkins и коммит, `dev` вне Jenkins. [app] — хеш сборки PWA, которую
- * сервер отдаёт сейчас: приложение сравнивает его со своим и видит, что пора перезапуститься.
+ * [version] — semver с коммитом сборки, `0.2.0+5cdae85`; вне сборки образа — `0.2.0+dev`.
+ * [commit] — короткий хеш коммита, [build] — номер сборки Jenkins, если есть (ADR 0009).
+ * [app] — хеш сборки PWA, которую сервер отдаёт сейчас: приложение сравнивает его со своим и
+ * видит, что пора перезапуститься.
  */
 @Serializable
-data class ServerInfo(val name: String, val version: String, val build: String? = null, val app: String? = null)
+data class ServerInfo(
+    val name: String,
+    val version: String,
+    val commit: String? = null,
+    val build: String? = null,
+    val app: String? = null,
+)
+
+/** `0.2.0+5cdae85`: semver и коммит как метаданные сборки. Без коммита — `0.2.0+dev`. */
+fun fullVersion(version: String = TRAIN_VERSION, commit: String?): String = "$version+${commit?.takeIf { it.isNotBlank() } ?: "dev"}"

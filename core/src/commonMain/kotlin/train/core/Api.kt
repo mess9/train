@@ -8,9 +8,23 @@ import kotlin.uuid.Uuid
 @Serializable
 data class ApiError(val error: String)
 
-/** Владелец ключа: приложение привязывает к нему очередь (ADR 0008). */
+/**
+ * Владелец ключа: приложение привязывает к нему очередь (ADR 0008). [admin] заводит
+ * пользователей и ведёт общий справочник упражнений (ADR 0011).
+ */
 @Serializable
-data class Me(val userId: Uuid, val email: String, val name: String? = null)
+data class Me(val userId: Uuid, val email: String, val name: String? = null, val admin: Boolean = false)
+
+/** Новый пользователь — например, друг со своим телефоном. */
+@Serializable
+data class UserCreate(val email: String, val name: String? = null, val keyLabel: String? = null)
+
+@Serializable
+data class User(val id: Uuid, val email: String, val name: String? = null, val admin: Boolean = false, val createdAt: Instant)
+
+/** Пользователь и его первый ключ: ключ показывается один раз. */
+@Serializable
+data class UserCreated(val user: User, val key: KeyCreated)
 
 @Serializable
 data class KeyCreate(val label: String? = null)
@@ -54,6 +68,11 @@ data class ExerciseCreate(
     val equipment: String? = null,
     val musclesPrimary: List<String>? = null,
     val musclesSecondary: List<String>? = null,
+    /**
+     * В общий справочник (видят все) или только себе. `null` — у админа в общий, у остальных
+     * себе. В общий добавляет только админ (ADR 0011).
+     */
+    val shared: Boolean? = null,
 )
 
 /** Правка справочника: меняются только переданные поля. */
@@ -70,16 +89,52 @@ data class ExercisePatch(
     val musclesSecondary: List<String>? = null,
 )
 
-/** Тренировка вместе с подходами, включая удалённые: они прячут строки плана. */
+/**
+ * Тренировка вместе с подходами, включая удалённые: они прячут строки плана.
+ * [measurements] — замеры, привязанные к тренировке.
+ */
 @Serializable
-data class WorkoutDetail(val workout: Workout, val sets: List<SetFact>)
+data class WorkoutDetail(val workout: Workout, val sets: List<SetFact>, val measurements: List<Measurement> = emptyList())
 
 @Serializable
 data class Trash(
     val plans: List<Plan> = emptyList(),
     val workouts: List<Workout> = emptyList(),
     val measurements: List<Measurement> = emptyList(),
+    val photos: List<Photo> = emptyList(),
 )
 
 @Serializable
-data class Purged(val plans: Int, val workouts: Int, val measurements: Int)
+data class Purged(val plans: Int, val workouts: Int, val measurements: Int, val photos: Int = 0)
+
+/** Типы фото, которые принимает сервер; тип определяется по содержимому, не по заголовку. */
+val PHOTO_TYPES = listOf("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif")
+
+/**
+ * Фото прогресса (ADR 0010). Файл — `GET /api/photos/{id}/file`. [takenAt] — когда снято, можно
+ * задним числом; [pose] — ракурс: `front`, `side`, `back` или свой.
+ */
+@Serializable
+data class Photo(
+    val id: Uuid,
+    val takenAt: Instant,
+    val contentType: String,
+    val size: Long,
+    /** SHA-256 файла, hex: повторная загрузка того же файла под тем же id — не ошибка. */
+    val sha256: String,
+    val pose: String? = null,
+    val note: String? = null,
+    val workoutId: Uuid? = null,
+    val createdAt: Instant,
+    /** Не `null` — фото в корзине. */
+    val deletedAt: Instant? = null,
+)
+
+/** Правка фото: меняются только переданные поля. Пустая строка убирает ракурс или заметку. */
+@Serializable
+data class PhotoPatch(
+    val takenAt: Instant? = null,
+    val pose: String? = null,
+    val note: String? = null,
+    val workoutId: Uuid? = null,
+)

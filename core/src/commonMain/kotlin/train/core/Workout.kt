@@ -1,5 +1,10 @@
 package train.core
 
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.UtcOffset
+import kotlinx.datetime.asTimeZone
+import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
@@ -38,6 +43,10 @@ data class LayoutItem(
     val added: Boolean = false,
     /** Убрано из тренировки. Сделанные подходы остаются в факте. */
     val removed: Boolean = false,
+    /** Сердечко владельца: упражнение очень понравилось. */
+    val liked: Boolean = false,
+    /** Заметка владельца к упражнению для агента. [note] — заметка плана, от агента. */
+    val comment: String? = null,
 )
 
 /** Снимок плана для старта тренировки; тип записи и сторона — из справочника, если в плане нет. */
@@ -71,6 +80,13 @@ data class Workout(
     val planId: Uuid? = null,
     val planVersion: Int? = null,
     val startedAt: Instant,
+    /** Смещение пояса телефона в момент старта: по нему считается [date]. */
+    val utcOffset: UtcOffset? = null,
+    /**
+     * День тренировки — дата старта по часам телефона. Считает сервер ([localDate]); у старых
+     * записей без [utcOffset] — по поясу сервера.
+     */
+    val date: LocalDate? = null,
     val finishedAt: Instant? = null,
     /** Комментарий владельца для агента. */
     val comment: String? = null,
@@ -81,6 +97,10 @@ data class Workout(
     val active get() = finishedAt == null && !deleted
 
     override fun withRev(rev: Long) = copy(rev = rev)
+
+    /** Дата старта по [utcOffset], без него — в поясе [fallback]. */
+    fun localDate(fallback: TimeZone): LocalDate =
+        (utcOffset?.let { startedAt.toLocalDateTime(it.asTimeZone()) } ?: startedAt.toLocalDateTime(fallback)).date
 }
 
 @Serializable
