@@ -32,9 +32,11 @@ import train.core.RecordType
 import train.core.SetValues
 import train.core.close
 import train.core.comment
+import train.core.bodyweightFor
 import train.core.compare
 import train.core.measure
 import train.core.newId
+import train.core.workoutForMeasurement
 import kotlin.math.roundToLong
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
@@ -96,8 +98,8 @@ fun Finish(app: AppState) {
         return
     }
     var text by remember(w.id) { mutableStateOf(w.comment.orEmpty()) }
-    val bodyweight = app.cache.measurements.filter { it.type == BODYWEIGHT && !it.deleted && it.measuredAt <= w.startedAt }
-        .maxByOrNull { it.measuredAt }?.value
+    // Как на сервере: взвешивание этой тренировки, иначе последнее до старта
+    val bodyweight = bodyweightFor(w, app.cache.measurements)
     val c = remember(w, s.sets) {
         // Как в /compare на сервере: подходы до замены ссылаются на прежнее упражнение — его в раскладке уже нет
         val ids = w.layout.blocks.flatMap { b -> b.items.flatMap { listOfNotNull(it.exerciseId, it.replacedFrom) } }.toSet() +
@@ -275,7 +277,9 @@ fun Measurements(app: AppState) {
         val ready = mfields.mapNotNull { f -> parseNum(values.getValue(f.type))?.takeIf { it > 0 }?.let { f to it } }
         Btn(if (saved) "Сохранено" else "Сохранить замеры", {
             val now = Clock.System.now()
-            val ms = ready.map { (f, v) -> Measurement(newId(), f.type, v, f.unit, now) }
+            // Замер сразу после тренировки — её замер: вес тела в её объёме, агент видит их рядом
+            val workout = workoutForMeasurement(app.cache.workouts + listOfNotNull(app.session?.workout), now)
+            val ms = ready.map { (f, v) -> Measurement(newId(), f.type, v, f.unit, now, workoutId = workout) }
             app.act { ms.fold(this) { s, m -> s.measure(m) } }
             app.rememberMeasurements(ms)
             values = mfields.associate { it.type to "" }

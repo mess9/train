@@ -31,6 +31,7 @@ import androidx.compose.ui.window.ComposeViewport
 import kotlinx.browser.document
 import kotlinx.coroutines.delay
 import train.client.Link
+import train.core.TRAIN_VERSION
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -213,7 +214,9 @@ private fun Settings(app: AppState) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 val mine = appBuild()
                 val info = app.serverInfo
-                Txt("Приложение: ${mine.take(8)}", T.meta)
+                // Версия проекта общая (ADR 0009): приложение с сервера той же сборки — та же версия с коммитом
+                val version = info?.takeIf { it.app == mine }?.version ?: TRAIN_VERSION
+                Txt("Приложение: $version · ${mine.take(8)}", T.meta)
                 Txt("Сервер: " + (info?.let { i -> listOfNotNull(i.version, i.build?.let { "сборка $it" }).joinToString(" · ") } ?: "нет данных"), T.meta)
                 val served = info?.app
                 if (served != null && served != mine) {

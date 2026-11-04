@@ -16,6 +16,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.offsetAt
 import kotlinx.datetime.minus
 import kotlinx.datetime.plus
 import kotlinx.serialization.Serializable
@@ -202,7 +204,9 @@ class AppState(private val scope: CoroutineScope) {
         val ids = layout.blocks.flatMap { b -> b.items.map { it.exerciseId } }.toSet()
         val exercises = cache.exercises.filter { it.id in ids }
         val previous = cache.lastSets.filter { it.exerciseId in ids }
-        act { start(plan, layout, exercises, previous, Clock.System.now()) }
+        val now = Clock.System.now()
+        // Смещение пояса телефона: по нему сервер считает день тренировки
+        act { start(plan, layout, exercises, previous, now, TimeZone.currentSystemDefault().offsetAt(now)) }
         rest = null
         wake(true)
         // На тренировке «назад» ведёт на главную, а не в план; шаг истории есть и без плана
