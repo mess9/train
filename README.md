@@ -42,15 +42,19 @@ CLI берёт настройки из флага `--url`, переменных 
 
 Описание API — `/q/openapi`, здоровье — `/q/health`.
 
-API требует заголовок `X-Api-Key`. В dev уже есть пользователь `dev@local` с ключом `dev-key`,
-датасет берётся из соседней папки `../exercises-dataset`. В проде:
+API требует заголовок `X-Api-Key`. В dev уже есть пользователь `dev@local` с ключом `dev-key`
+(он админ), датасет берётся из соседней папки `../exercises-dataset`, фото пишутся в
+`server/build/photos`. В проде:
 
 | Переменная | Что |
 |---|---|
 | `TRAIN_BOOTSTRAP_EMAIL`, `TRAIN_BOOTSTRAP_KEY` | первый пользователь и его ключ, создаются при старте |
 | `TRAIN_SOURCE_PATH` | `exercises.json` датасета — для поиска и добавления упражнений |
 | `TRAIN_MEDIA_PATH` | папка с картинками и гифками (`images/`, `videos/`) |
-| `TRAIN_ZONE` | часовой пояс для «сегодня», например `Europe/Moscow` |
+| `TRAIN_PHOTOS_PATH` | папка фото (ADR 0010); не задана — API фото отвечает `503` |
+| `TRAIN_PHOTOS_MAX_BYTES` | предел файла фото, по умолчанию `15728640` (15 МБ) |
+| `TRAIN_COMMIT`, `TRAIN_BUILD` | коммит и номер сборки: задаёт сборка образа, в `/api/info` (ADR 0009) |
+| `TRAIN_ZONE` | часовой пояс для «сегодня» и дня старых тренировок без смещения телефона, например `Europe/Moscow` |
 | `QUARKUS_DATASOURCE_JDBC_URL`, `_USERNAME`, `_PASSWORD` | Postgres |
 
 ## Docker
@@ -61,6 +65,19 @@ API требует заголовок `X-Api-Key`. В dev уже есть пол
 монтируется только для чтения: по умолчанию из `/mnt/safe_storage/data/train/exercises-dataset`,
 другой путь задаёт `TRAIN_DATASET_DIR`.
 
+Фото (ADR 0010) — файлы на диске, в контейнере `/photos`: bind-том из
+`/mnt/safe_storage/data/train/photos` (другой путь — `TRAIN_PHOTOS_DIR`), сервер пишет туда от
+пользователя `1000`. Файл — `<userId>/<photoId>`, описание — в базе. Папку создаёт владелец
+сервера до первого деплоя, иначе Jenkins остановится на этапе Check storage:
+
+```bash
+sudo mkdir -p /mnt/safe_storage/data/train/photos
+sudo chown 1000:1000 /mnt/safe_storage/data/train/photos
+```
+
+Бэкап фото — вместе с остальным `/mnt/safe_storage`; дамп базы без папки фото даёт описания
+без файлов.
+
 ```bash
 cp train.env.example train.env   # заполнить; train.env в .gitignore
 docker network create proxy      # один раз: на сервере это сеть Traefik
@@ -70,7 +87,9 @@ docker compose --env-file train.env ps   # server — healthy, http://127.0.0.1:
 
 На сервере (shelezyaka) деплоит Jenkins-задача `train` по [Jenkinsfile](Jenkinsfile): тесты
 `core`, `client`, `cli` в образе (`docker build --target test .`), push в `localhost:5000`,
-`docker compose up` с секретом `train-env`, smoke-тест. Снаружи — `https://train.fil-lost.org`
+`docker compose up` с секретом `train-env`, smoke-тест. Сборка образа передаёт коммит и номер
+сборки — `/api/info` и `gym info` показывают `0.2.0+<коммит>`. Версию (semver) поднимают в
+`gradle.properties`. Снаружи — `https://train.fil-lost.org`
 через туннель Cloudflare и Traefik.
 
 На сервере база попадает в ночные дампы shelezyaka (`train.sql.gz`). Дамп руками:
@@ -84,3 +103,16 @@ docker exec train-train_postgres-1 pg_dump -U train -Fc train > train-$(date +%F
 ```bash
 docker exec -i train-train_postgres-1 pg_restore -U train -d train --clean --if-exists < train-2026-11-04.dump
 ```
+
+## Пользователи
+
+Первый пользователь (`TRAIN_BOOTSTRAP_EMAIL`) — админ (ADR 0011). Он заводит остальных и ведёт
+общий справочник упражнений; у остальных к общему добавляются свои, всё прочее у каждого своё.
+
+```bash
+gym admin user add friend@example.com --name Друг --qr   # QR со ссылкой …/#key=… — в stderr
+gym admin user list
+```
+
+Ключ нового пользователя показывается один раз. Его почту надо добавить и в список Cloudflare
+Access — иначе телефон до сервера не дойдёт.
