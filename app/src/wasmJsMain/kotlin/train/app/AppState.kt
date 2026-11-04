@@ -35,6 +35,7 @@ import train.core.LayoutBlock
 import train.core.Me
 import train.core.Measurement
 import train.core.Plan
+import train.core.Profile
 import train.core.RestTimer
 import train.core.Tools
 import train.core.Session
@@ -87,6 +88,8 @@ data class Cache(
     val workouts: List<Workout> = emptyList(),
     val measurements: List<Measurement> = emptyList(),
     val savedAt: Instant? = null,
+    /** Профиль — ради настроек телефона (вибрация); сам профиль правят через `gym profile`. */
+    val profile: Profile? = null,
 )
 
 const val KEY_KEY = "key"
@@ -290,8 +293,9 @@ class AppState(private val scope: CoroutineScope) {
                 val workouts = c.workouts(today.minus(DatePeriod(days = 120)), null)
                 val measurements = c.measurements()
                 val lastSets = exercises.map { it.id }.chunked(40).flatMap { c.lastSets(it) }
+                val profile = runCatching { c.profile() }.getOrNull() ?: cache.profile
                 if (key != k) return@launch
-                saveCache(withUnsent(Cache(me, plans, exercises, lastSets, workouts, measurements, now)))
+                saveCache(withUnsent(Cache(me, plans, exercises, lastSets, workouts, measurements, now, profile)))
                 if (link != Link.OTHER_USER) link = Link.ONLINE
                 poke()
             } catch (e: Throwable) {
@@ -299,6 +303,36 @@ class AppState(private val scope: CoroutineScope) {
                 if (link == Link.ONLINE) link = Link.SERVER_ERROR
             } finally {
                 refreshing = false
+            }
+        }
+    }
+
+    /** Вибрация в конце отдыха и таймера (`Profile.vibration`, по умолчанию выключена). */
+    val vibration get() = cache.profile?.vibration == true
+
+    /** Не сохранилась настройка профиля — почему. */
+    var profileError by mutableStateOf<String?>(null)
+        private set
+
+    /**
+     * Включить или выключить вибрацию. Сразу на экране, потом на сервере: профиль меняется целиком,
+     * поэтому сначала свежая его версия — имя и оборудование из `gym profile` не затираются.
+     * Сервер не принял — настройка возвращается.
+     */
+    fun setVibration(on: Boolean) {
+        val k = key ?: return
+        val before = cache.profile
+        profileError = null
+        saveCache(cache.copy(profile = (before ?: Profile()).copy(vibration = on)))
+        scope.launch {
+            try {
+                val c = client(k)
+                val saved = c.putProfile(c.profile().copy(vibration = on))
+                if (key == k) saveCache(cache.copy(profile = saved))
+            } catch (e: Throwable) {
+                if (key != k) return@launch
+                saveCache(cache.copy(profile = before))
+                profileError = "Не сохранилось: " + (linkText(linkOf(e)) ?: "ошибка сервера")
             }
         }
     }

@@ -94,16 +94,17 @@ fun Root() {
 @Composable
 private fun TimerSignals(app: AppState) {
     val restUntil = app.rest?.until
-    LaunchedEffect(restUntil) { signalAt(restUntil) }
+    LaunchedEffect(restUntil) { signalAt(app, restUntil) }
     val timerUntil = app.tools.timerUntil
-    LaunchedEffect(timerUntil) { signalAt(timerUntil) }
+    LaunchedEffect(timerUntil) { signalAt(app, timerUntil) }
 }
 
-private suspend fun signalAt(at: Instant?) {
+private suspend fun signalAt(app: AppState, at: Instant?) {
     val left = (at ?: return) - Clock.System.now()
     if (!left.isPositive()) return
     delay(left)
-    buzz()
+    // Настройку читаем в момент сигнала: выключил во время отдыха — не вибрирует
+    if (app.vibration) buzz()
     beep()
 }
 
@@ -209,6 +210,20 @@ private fun Settings(app: AppState) {
             Btn("Убрать её из очереди", app::dropRejected, Modifier.fillMaxWidth(), Kind.Ghost)
         }
 
+        Section("Сигнал отдыха")
+        Txt("В конце отдыха и таймера всегда звучит короткий сигнал.", T.meta)
+        Gap(10.dp)
+        CheckRow("Вибрация", "Два коротких толчка. На iPhone браузер не вибрирует — только звук", app.vibration) {
+            val on = !app.vibration
+            app.setVibration(on)
+            // Показать, какой она будет: тап — жест пользователя, браузер разрешает вибрацию
+            if (on) buzz()
+        }
+        app.profileError?.let {
+            Gap(8.dp)
+            LateTag(it)
+        }
+
         Section("Версия")
         Surface(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -237,18 +252,23 @@ private fun Settings(app: AppState) {
         Btn("Сменить ключ", { app.connect(key); key = "" }, Modifier.fillMaxWidth(), Kind.Ghost, enabled = key.isNotBlank())
 
         Section("Проверка")
-        Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.Card).tap { app.setPaused(!app.paused) }.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Txt("Пауза отправки", T.strong)
-                Txt("Отметки копятся в очереди и не уходят на сервер", T.meta)
-            }
-            Box(
-                Modifier.size(22.dp).clip(RoundedCornerShape(6.dp))
-                    .then(if (app.paused) Modifier.background(C.Lime) else Modifier.border(2.dp, C.Dash, RoundedCornerShape(6.dp))),
-            )
+        CheckRow("Пауза отправки", "Отметки копятся в очереди и не уходят на сервер", app.paused) { app.setPaused(!app.paused) }
+    }
+}
+
+@Composable
+private fun CheckRow(title: String, sub: String, on: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.Card).tap(onClick).padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Txt(title, T.strong)
+            Txt(sub, T.meta)
         }
+        Box(
+            Modifier.size(22.dp).clip(RoundedCornerShape(6.dp))
+                .then(if (on) Modifier.background(C.Lime) else Modifier.border(2.dp, C.Dash, RoundedCornerShape(6.dp))),
+        )
     }
 }
