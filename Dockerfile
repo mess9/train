@@ -25,9 +25,11 @@ RUN --mount=type=cache,target=/root/.gradle \
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
-# Номер сборки — только в последней стадии: стадии сборки и тестов остаются в кэше
-ARG TRAIN_BUILD=dev
-ENV TRAIN_BUILD=$TRAIN_BUILD
+# Коммит и номер сборки — только в последней стадии: стадии сборки и тестов остаются в кэше.
+# /api/info отдаёт версию 0.2.0+<коммит> (ADR 0009)
+ARG TRAIN_COMMIT=dev
+ARG TRAIN_BUILD=
+ENV TRAIN_COMMIT=$TRAIN_COMMIT TRAIN_BUILD=$TRAIN_BUILD
 COPY --from=build /src/server/build/quarkus-app/ ./
 ENV PORT=7313 \
     JAVA_OPTS="-XX:MaxRAMPercentage=50 -Djava.util.logging.manager=org.jboss.logmanager.LogManager"

@@ -26,7 +26,7 @@ pipeline {
 
         stage('Build image') {
             steps {
-                sh 'docker build --build-arg TRAIN_BUILD="$BUILD_NUMBER-$(git rev-parse --short HEAD)" -t $REGISTRY/train-server:$IMAGE_TAG -t $REGISTRY/train-server:latest .'
+                sh 'docker build --build-arg TRAIN_COMMIT="$(git rev-parse --short HEAD)" --build-arg TRAIN_BUILD="$BUILD_NUMBER" -t $REGISTRY/train-server:$IMAGE_TAG -t $REGISTRY/train-server:latest .'
             }
         }
 
@@ -41,14 +41,18 @@ pipeline {
 
         stage('Check storage') {
             steps {
-                // Датасет кладётся руками от mess9. Без диска chattr +i не даст его создать —
-                // деплой остановится здесь, а не поднимет сервер без упражнений.
+                // Датасет и папка фото создаются руками от mess9. Без диска chattr +i не даст их создать —
+                // деплой остановится здесь, а не поднимет сервер без упражнений или с фото не на том диске.
+                // --mount, а не -v: -v молча создал бы пустую папку от root
                 sh '''
                     docker run --rm --network none --user 1000:1000 --entrypoint sh \
-                      -v /mnt/safe_storage/data/train/exercises-dataset:/dataset:ro $REGISTRY/train-server:$IMAGE_TAG \
+                      -v /mnt/safe_storage/data/train/exercises-dataset:/dataset:ro \
+                      --mount type=bind,source=/mnt/safe_storage/data/train/photos,target=/photos \
+                      $REGISTRY/train-server:$IMAGE_TAG \
                       -c 'for p in data/exercises.json images videos; do
                             [ -e "/dataset/$p" ] || { echo "нет в датасете: $p"; exit 1; }
-                          done'
+                          done
+                          [ -w /photos ] || { echo "папка фото не для записи пользователю 1000"; exit 1; }'
                 '''
             }
         }

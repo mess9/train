@@ -20,6 +20,7 @@ services:
       TRAIN_BOOTSTRAP_KEY: ${TRAIN_BOOTSTRAP_KEY:?}
       TRAIN_SOURCE_PATH: /dataset/data/exercises.json
       TRAIN_MEDIA_PATH: /dataset
+      TRAIN_PHOTOS_PATH: /photos
       TZ: Asia/Yerevan
     volumes:
       # Датасет: exercises.json + images/ и videos/. Длинная запись — без каталога на хосте
@@ -28,6 +29,11 @@ services:
         source: ${TRAIN_DATASET_DIR:-/mnt/safe_storage/data/train/exercises-dataset}
         target: /dataset
         read_only: true
+      # Фото прогресса (ADR 0010): пишет сервер от пользователя 1000 — папку создать заранее
+      # (chown 1000:1000), бэкап — вместе с остальным /mnt/safe_storage
+      - type: bind
+        source: ${TRAIN_PHOTOS_DIR:-/mnt/safe_storage/data/train/photos}
+        target: /photos
     # Снаружи — https://train.fil-lost.org: туннель Cloudflare → Traefik → сюда.
     # Порт на хосте — только localhost, для проверок; TRAIN_BIND=0.0.0.0 откроет его в сеть
     ports:
