@@ -14,6 +14,14 @@ class InfoResourceTest {
         given().get("/api/info").then()
             .statusCode(200)
             .body("name", equalTo("train"))
+            .body("build", equalTo("dev"))
+    }
+
+    /** По `app` приложение узнаёт, что на сервере уже другая сборка. */
+    @Test
+    fun infoNamesServedApp() {
+        val hash = appJs()!!.removePrefix("app.").removeSuffix(".js")
+        given().get("/api/info").then().body("app", equalTo(hash))
     }
 
     /** `app.js` в сборке с хешем в имени (`server:appDist`) — берём его из `index.html`. */

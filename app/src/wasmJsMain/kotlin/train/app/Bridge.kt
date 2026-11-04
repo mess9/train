@@ -24,6 +24,9 @@ fun openLogin(): Unit = js("location.href = '/?login=1'")
 
 fun reload(): Unit = js("location.reload()")
 
+/** Хеш сборки приложения из имени `app.<хеш>.js`, `dev` без `server:appDist`. */
+fun appBuild(): String = js("window.bridge.build || 'dev'")
+
 fun pageVisible(): Boolean = js("document.visibilityState === 'visible'")
 
 /** `localStorage`: запись синхронная — сессия на диске раньше, чем обновится экран. */

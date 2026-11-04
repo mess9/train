@@ -83,7 +83,9 @@
         }).catch(() => resolve('busy'));
       });
       const s = document.createElement('script');
-      s.src = 'app.js';
+      const src = 'app.js'; // server:appDist подставляет имя с хешем — это и есть версия приложения
+      window.bridge.build = (src.match(/^app\.(\w+)\.js$/) || [])[1] || 'dev';
+      s.src = src;
       document.body.appendChild(s);
     })();
   </script>

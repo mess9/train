@@ -26,7 +26,7 @@ pipeline {
 
         stage('Build image') {
             steps {
-                sh 'docker build -t $REGISTRY/train-server:$IMAGE_TAG -t $REGISTRY/train-server:latest .'
+                sh 'docker build --build-arg TRAIN_BUILD="$BUILD_NUMBER-$(git rev-parse --short HEAD)" -t $REGISTRY/train-server:$IMAGE_TAG -t $REGISTRY/train-server:latest .'
             }
         }
 

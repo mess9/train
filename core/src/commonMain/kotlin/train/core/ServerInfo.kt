@@ -21,5 +21,9 @@ val TrainJson = Json {
     encodeDefaults = true
 }
 
+/**
+ * [build] — номер сборки Jenkins и коммит, `dev` вне Jenkins. [app] — хеш сборки PWA, которую
+ * сервер отдаёт сейчас: приложение сравнивает его со своим и видит, что пора перезапуститься.
+ */
 @Serializable
-data class ServerInfo(val name: String, val version: String)
+data class ServerInfo(val name: String, val version: String, val build: String? = null, val app: String? = null)

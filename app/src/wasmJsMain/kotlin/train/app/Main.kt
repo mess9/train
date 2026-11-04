@@ -172,6 +172,20 @@ private fun Settings(app: AppState) {
             Btn("Убрать её из очереди", app::dropRejected, Modifier.fillMaxWidth(), Kind.Ghost)
         }
 
+        Section("Версия")
+        Surface(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val mine = appBuild()
+                val info = app.serverInfo
+                Txt("Приложение: ${mine.take(8)}", T.meta)
+                Txt("Сервер: " + (info?.let { i -> listOfNotNull(i.version, i.build?.let { "сборка $it" }).joinToString(" · ") } ?: "нет данных"), T.meta)
+                val served = info?.app
+                if (served != null && served != mine) {
+                    Txt("На сервере приложение ${served.take(8)}. Закройте приложение и откройте снова.", T.meta.copy(color = C.Lime))
+                }
+            }
+        }
+
         Section("Ключ")
         Txt("Новый ключ заменит текущий. Очередь привязана к пользователю: с ключом другого она не отправится.", T.meta)
         Gap(10.dp)

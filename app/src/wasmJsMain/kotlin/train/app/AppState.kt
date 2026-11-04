@@ -28,6 +28,7 @@ import train.client.send
 import train.core.BlockRole
 import train.core.Comparison
 import train.core.Exercise
+import train.core.ServerInfo
 import train.core.LayoutBlock
 import train.core.Me
 import train.core.Measurement
@@ -130,6 +131,10 @@ class AppState(private val scope: CoroutineScope) {
     var refreshing by mutableStateOf(false)
         private set
     var connectError by mutableStateOf<String?>(null)
+        private set
+
+    /** Версия сервера и сборка приложения на нём — с последнего обновления данных, не в кэше. */
+    var serverInfo by mutableStateOf<ServerInfo?>(null)
         private set
 
     var rest by mutableStateOf<RestState?>(null)
@@ -282,6 +287,7 @@ class AppState(private val scope: CoroutineScope) {
                 // Ключ сменили, пока шёл запрос, — ответ про другого пользователя
                 if (key != k) return@launch
                 adopt(me, k)
+                serverInfo = runCatching { c.info() }.getOrNull() ?: serverInfo
                 val today = now.date()
                 val plans = c.plans(today.minus(DatePeriod(days = 60)), today.plus(DatePeriod(days = 14)))
                 val exercises = c.exercises()
