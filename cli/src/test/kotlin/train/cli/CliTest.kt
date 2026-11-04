@@ -10,12 +10,16 @@ import io.ktor.client.request.HttpRequestData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.ByteArrayContent
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.LocalDate
 import kotlinx.serialization.json.jsonObject
 import train.core.KeyCreated
+import train.core.Photo
+import train.core.User
+import train.core.UserCreated
 import train.core.Plan
 import train.core.PlanBody
 import train.core.PlanStatus
@@ -159,5 +163,109 @@ class CliTest {
         assertTrue(r.stdout.contains("\"link\":\"https://train.example/#key=secret-key\""), r.stdout)
         assertTrue(r.stderr.contains("█"))
         assertFalse(requests.single().url.toString().contains("secret-key"))
+    }
+
+    @Test
+    fun adminUserAddGivesLinkForPhone() {
+        val created = UserCreated(
+            User(newId(), "friend@example.com", "Друг", createdAt = Instant.parse("2026-11-05T10:00:00Z")),
+            KeyCreated(newId(), "friend-key", "первый"),
+        )
+        val env = env + ("GYM_URL" to "https://train.example")
+        val r = gym("admin user add friend@example.com --name Друг --qr", env = env) {
+            HttpStatusCode.OK to TrainJson.encodeToString(UserCreated.serializer(), created)
+        }
+        assertEquals(0, r.statusCode, r.stderr)
+        val req = requests.single()
+        assertEquals(HttpMethod.Post, req.method)
+        assertEquals("/api/admin/users", req.url.encodedPath)
+        val sent = TrainJson.parseToJsonElement(req.text()!!).jsonObject
+        assertEquals("\"friend@example.com\"", sent["email"].toString())
+        assertEquals("\"Друг\"", sent["name"].toString())
+        val out = TrainJson.parseToJsonElement(r.stdout).jsonObject
+        assertEquals("\"https://train.example/#key=friend-key\"", out["key"]!!.jsonObject["link"].toString())
+        assertEquals("\"friend@example.com\"", out["user"]!!.jsonObject["email"].toString())
+        assertTrue(r.stderr.contains("█"))
+
+        // Не админ — ошибка сервера в stderr
+        val denied = gym("admin user list") { HttpStatusCode.Forbidden to """{"error":"только для админа"}""" }
+        assertEquals(1, denied.statusCode)
+        assertEquals("""{"error":"только для админа","status":403}""", denied.stderr.trim())
+    }
+
+    @Test
+    fun measureLinksToWorkout() {
+        val w = newId()
+        gym("measure add weight 80 --workout $w") { req -> HttpStatusCode.OK to req.text()!!.substringAfter("\"data\":").substringBeforeLast(",\"baseRev\"") }
+        val data = TrainJson.parseToJsonElement(requests.single().text()!!).jsonObject["data"]!!.jsonObject
+        assertEquals("\"$w\"", data["workoutId"].toString())
+
+        gym("measure list --workout $w") { HttpStatusCode.OK to "[]" }
+        assertEquals(w.toString(), requests.last().url.parameters["workout"])
+        assertEquals(1, gym("measure list --workout x").statusCode)
+    }
+
+    @Test
+    fun exerciseAddSharedFlag() {
+        val reply = { _: HttpRequestData -> HttpStatusCode.OK to """{"id":"${newId()}","nameRu":"x","recordType":"WEIGHT_REPS"}""" }
+        gym("exercise add --ru Жим --shared", reply = reply)
+        gym("exercise add --ru Жим --own", reply = reply)
+        gym("exercise add --ru Жим", reply = reply)
+        val shared = requests.map { TrainJson.parseToJsonElement(it.text()!!).jsonObject["shared"]?.toString() }
+        assertEquals(listOf("true", "false", null), shared)
+    }
+
+    private val photo = Photo(
+        newId(), Instant.parse("2026-10-01T12:00:00Z"), "image/jpeg", 4, "ab", pose = "front",
+        createdAt = Instant.parse("2026-11-05T10:00:00Z"),
+    )
+
+    @Test
+    fun photoAddSendsRawFile() {
+        val jpg = Files.createTempFile("gym", ".jpg").also { Files.write(it, byteArrayOf(-1, -40, -1, -32)) }
+        val w = newId()
+        val r = gym("photo add $jpg --at 2026-10-01T12:00:00Z --pose front --workout $w") {
+            HttpStatusCode.OK to TrainJson.encodeToString(Photo.serializer(), photo)
+        }
+        assertEquals(0, r.statusCode, r.stderr)
+        val req = requests.single()
+        assertEquals(HttpMethod.Put, req.method)
+        assertTrue(req.url.encodedPath.startsWith("/api/photos/"))
+        assertEquals("2026-10-01T12:00:00Z", req.url.parameters["takenAt"])
+        assertEquals("front", req.url.parameters["pose"])
+        assertEquals(w.toString(), req.url.parameters["workoutId"])
+        assertTrue((req.body as ByteArrayContent).bytes().contentEquals(byteArrayOf(-1, -40, -1, -32)))
+        assertEquals(photo, TrainJson.decodeFromString(Photo.serializer(), r.stdout))
+
+        // Дата без времени — полдень того дня
+        gym("photo add $jpg --at 2025-12-31") { HttpStatusCode.OK to TrainJson.encodeToString(Photo.serializer(), photo) }
+        assertTrue(Instant.parse(requests.last().url.parameters["takenAt"]!!).toString().startsWith("2025-12-31"))
+        assertEquals(1, gym("photo add $jpg --at вчера").statusCode)
+        assertEquals(1, gym("photo add ${jpg}.нет").statusCode)
+    }
+
+    @Test
+    fun photoGetSavesFile() {
+        val target = Files.createTempDirectory("gym").resolve("p.jpg")
+        val r = gym("photo get ${photo.id} --out $target") { req ->
+            if (req.url.encodedPath.endsWith("/file")) HttpStatusCode.OK to "JPEG" else HttpStatusCode.OK to TrainJson.encodeToString(Photo.serializer(), photo)
+        }
+        assertEquals(0, r.statusCode, r.stderr)
+        assertEquals(listOf("/api/photos/${photo.id}", "/api/photos/${photo.id}/file"), requests.map { it.url.encodedPath })
+        assertEquals("JPEG", Files.readString(target))
+    }
+
+    @Test
+    fun photoRmAndEdit() {
+        val json = TrainJson.encodeToString(Photo.serializer(), photo)
+        gym("photo rm ${photo.id}") { req -> if (req.method == HttpMethod.Delete) HttpStatusCode.NoContent to "" else HttpStatusCode.OK to json }
+        assertEquals(listOf(HttpMethod.Delete, HttpMethod.Get), requests.map { it.method })
+        requests.clear()
+
+        gym("photo edit ${photo.id} --note утро --at 2026-09-01T08:00:00Z") { HttpStatusCode.OK to json }
+        val req = requests.single()
+        assertEquals(HttpMethod.Patch, req.method)
+        val sent = TrainJson.parseToJsonElement(req.text()!!).jsonObject
+        assertEquals(setOf("takenAt", "note"), sent.keys)
     }
 }

@@ -10,9 +10,12 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
+import io.ktor.http.content.ByteArrayContent
+import io.ktor.http.content.OutgoingContent
 import io.ktor.http.content.TextContent
 import io.ktor.http.encodeURLParameter
 import kotlinx.datetime.LocalDate
+import kotlin.time.Instant
 import kotlinx.serialization.serializer
 import train.core.API_KEY_HEADER
 import train.core.API_PREFIX
@@ -27,6 +30,8 @@ import train.core.KeyCreated
 import train.core.Me
 import train.core.Measurement
 import train.core.OP_ID_HEADER
+import train.core.Photo
+import train.core.PhotoPatch
 import train.core.Plan
 import train.core.PlanPut
 import train.core.Profile
@@ -37,6 +42,9 @@ import train.core.SourceExercise
 import train.core.SyncPut
 import train.core.Trash
 import train.core.TrainJson
+import train.core.User
+import train.core.UserCreate
+import train.core.UserCreated
 import train.core.Workout
 import train.core.WorkoutDetail
 import kotlin.uuid.Uuid
@@ -76,6 +84,13 @@ class ApiClient(
     suspend fun keys(): List<ApiKey> = get("/keys")
 
     suspend fun revokeKey(id: Uuid) = call(HttpMethod.Delete, "/keys/$id")
+
+    // Админ (ADR 0011)
+
+    suspend fun users(): List<User> = get("/admin/users")
+
+    /** Новый пользователь и его первый ключ: ключ показывается один раз. */
+    suspend fun createUser(body: UserCreate): UserCreated = send(HttpMethod.Post, "/admin/users", body)
 
     // Справочник и источник
 
@@ -124,8 +139,9 @@ class ApiClient(
 
     // Замеры, профиль, корзина
 
-    suspend fun measurements(type: String? = null, from: LocalDate? = null, to: LocalDate? = null): List<Measurement> =
-        get("/measurements" + query("type" to type, "from" to from?.toString(), "to" to to?.toString()))
+    /** [workout] — только замеры этой тренировки. */
+    suspend fun measurements(type: String? = null, from: LocalDate? = null, to: LocalDate? = null, workout: Uuid? = null): List<Measurement> =
+        get("/measurements" + query("type" to type, "from" to from?.toString(), "to" to to?.toString(), "workout" to workout?.toString()))
 
     suspend fun measurement(id: Uuid): Measurement = get("/measurements/$id")
 
@@ -134,6 +150,47 @@ class ApiClient(
     suspend fun profile(): Profile = get("/profile")
 
     suspend fun putProfile(body: Profile): Profile = send(HttpMethod.Put, "/profile", body)
+
+    // Фото прогресса (ADR 0010)
+
+    suspend fun photos(from: LocalDate? = null, to: LocalDate? = null, workout: Uuid? = null): List<Photo> =
+        get("/photos" + query("from" to from?.toString(), "to" to to?.toString(), "workout" to workout?.toString()))
+
+    suspend fun photo(id: Uuid): Photo = get("/photos/$id")
+
+    /**
+     * Загрузить фото под [id] от клиента: повтор с тем же файлом ничего не дублирует. [takenAt] —
+     * ISO 8601 или `YYYY-MM-DD`; без него — момент загрузки. Тип сервер определяет по содержимому.
+     */
+    suspend fun uploadPhoto(
+        id: Uuid,
+        bytes: ByteArray,
+        takenAt: String? = null,
+        pose: String? = null,
+        note: String? = null,
+        workoutId: Uuid? = null,
+    ): Photo {
+        val q = query("takenAt" to takenAt, "pose" to pose, "note" to note, "workoutId" to workoutId?.toString())
+        val r = request(HttpMethod.Put, "/photos/$id$q", ByteArrayContent(bytes, ContentType.Application.OctetStream))
+        check(r)
+        return decode(r.bodyAsText())
+    }
+
+    suspend fun uploadPhoto(id: Uuid, bytes: ByteArray, takenAt: Instant, pose: String? = null, note: String? = null, workoutId: Uuid? = null): Photo =
+        uploadPhoto(id, bytes, takenAt.toString(), pose, note, workoutId)
+
+    suspend fun photoFile(id: Uuid): ByteArray {
+        val r = request(HttpMethod.Get, "/photos/$id/file", null as OutgoingContent?)
+        check(r)
+        return r.bodyAsBytes()
+    }
+
+    suspend fun patchPhoto(id: Uuid, body: PhotoPatch): Photo = send(HttpMethod.Patch, "/photos/$id", body)
+
+    /** В корзину; насовсем — [purgeTrash]. */
+    suspend fun deletePhoto(id: Uuid) = call(HttpMethod.Delete, "/photos/$id")
+
+    suspend fun restorePhoto(id: Uuid): Photo = send(HttpMethod.Post, "/photos/$id/restore", null as String?)
 
     suspend fun trash(): Trash = get("/trash")
 
@@ -176,10 +233,13 @@ class ApiClient(
     }
 
     private suspend fun request(method: HttpMethod, path: String, body: String?): HttpResponse =
+        request(method, path, body?.let { TextContent(it, ContentType.Application.Json) })
+
+    private suspend fun request(method: HttpMethod, path: String, body: OutgoingContent?): HttpResponse =
         http.request(api + path) {
             this.method = method
             auth()
-            if (body != null) setBody(TextContent(body, ContentType.Application.Json))
+            if (body != null) setBody(body)
         }
 
     private fun io.ktor.client.request.HttpRequestBuilder.auth() {

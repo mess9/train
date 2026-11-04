@@ -106,9 +106,13 @@ fun gym(http: (() -> HttpClient)? = null): Gym = (http?.let(::Gym) ?: Gym()).sub
         ExerciseList(), ExerciseGet(), ExerciseSearch(), ExerciseAdd(), ExerciseEdit(), ExerciseLast(),
     ),
     Group("measure", "Замеры: вес тела и другие").subcommands(MeasureList(), MeasureAdd()),
+    Group("photo", "Фото прогресса").subcommands(PhotoList(), PhotoAdd(), PhotoGet(), PhotoEdit(), PhotoRm(), PhotoRestore()),
     Group("profile", "Профиль: оборудование и заметки для агента").subcommands(ProfileGet(), ProfilePut()),
     Group("trash", "Корзина").subcommands(TrashList(), TrashPurge()),
-    Group("admin", "Ключи API").subcommands(AdminKey(), AdminKeys(), AdminRevoke()),
+    Group("admin", "Ключи API и пользователи").subcommands(
+        AdminKey(), AdminKeys(), AdminRevoke(),
+        Group("user", "Пользователи: завести с первым ключом, список (только админ)").subcommands(UserAdd(), UserList()),
+    ),
 )
 
 suspend fun main(args: Array<String>) = gym().main(args)
