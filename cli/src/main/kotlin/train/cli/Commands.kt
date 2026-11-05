@@ -112,7 +112,7 @@ class PlanPutCmd : ApiCommand(
  * Поля вывода `plan get`, которых нет во вводе (`id`, `version`, `status`…): их отбрасываем,
  * остальное разбирается строго — опечатка в имени поля даёт ошибку, а не теряется.
  */
-private val PLAN_OUTPUT_ONLY: Set<String> = names(Plan.serializer().descriptor) - names(PlanPut.serializer().descriptor)
+internal val PLAN_OUTPUT_ONLY: Set<String> = names(Plan.serializer().descriptor) - names(PlanPut.serializer().descriptor)
 
 private fun names(d: SerialDescriptor) = (0 until d.elementsCount).map(d::getElementName).toSet()
 

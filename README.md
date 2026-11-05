@@ -124,6 +124,20 @@ docker exec train-train_postgres-1 pg_dump -U train -Fc train > train-$(date +%F
 docker exec -i train-train_postgres-1 pg_restore -U train -d train --clean --if-exists < train-2026-11-04.dump
 ```
 
+## Импорт истории
+
+`gym import <каталог>` заливает тренировки, планы и замеры из других приложений (ADR 0013).
+Формат — тот же JSON, что выдают `plan get`, `workout get` и `measure list`, в папках `plans/`,
+`workouts/`, `measurements/`. ID — UUIDv5 от источника и исходного ID, поэтому повтор безопасен:
+одинаковые записи не трогаются, а поправленные на телефоне не затираются без `--update`.
+
+```bash
+gym import ./hevy-out --dry-run   # что создастся, что уже есть, что отличается — ничего не пишет
+gym import ./hevy-out
+```
+
+Конвертеры выгрузок (Hevy, GymKeeper) держат вне репозитория — это личные данные.
+
 ## Пользователи
 
 Первый пользователь (`TRAIN_BOOTSTRAP_EMAIL`) — админ (ADR 0011). Он заводит остальных и ведёт

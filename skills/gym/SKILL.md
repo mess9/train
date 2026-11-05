@@ -107,6 +107,10 @@ CLI `gym`: пишешь планы, читаешь факт, решаешь, ч�
   <YYYY-MM-DD|ISO> --pose front|side|back [--note] [--workout]` (задним числом — через `--at`),
   `gym photo get <id> --out <файл>`, `gym photo edit`, `gym photo rm` (в корзину), `gym photo
   restore`. Принимаются JPEG, PNG, WebP, HEIC, до 15 МБ.
+- История из других приложений: `gym import <каталог> [--dry-run] [--update]` — папки `plans/`,
+  `workouts/`, `measurements/` в формате вывода `plan get`, `workout get`, `measure list`; ID —
+  UUIDv5 (ADR 0013). Сначала `--dry-run`: `differs` — запись на сервере поправлена, без `--update`
+  она не меняется.
 - Пользователи — только по просьбе владельца: `gym admin user add <email> [--name] --qr`
   выдаёт первый ключ и ссылку для телефона; ключ показывается один раз — передай его владельцу,
   в отчёт и файлы не пиши.

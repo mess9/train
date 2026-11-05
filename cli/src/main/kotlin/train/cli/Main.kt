@@ -102,6 +102,7 @@ fun gym(http: (() -> HttpClient)? = null): Gym = (http?.let(::Gym) ?: Gym()).sub
     Group("plan", "Планы: создать, заменить, посмотреть, удалить").subcommands(PlanPutCmd(), PlanList(), PlanGet(), PlanRm()),
     Group("workout", "Тренировки с подходами").subcommands(WorkoutList(), WorkoutGet()),
     CompareCmd(),
+    ImportCmd(),
     Group("exercise", "Справочник упражнений и поиск по датасету").subcommands(
         ExerciseList(), ExerciseGet(), ExerciseSearch(), ExerciseAdd(), ExerciseEdit(), ExerciseLast(),
     ),
