@@ -44,6 +44,8 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.TextFieldValue
@@ -309,8 +311,13 @@ fun BackLink(label: String, onClick: () -> Unit) {
 fun Section(title: String) = Txt(title.uppercase(), T.sec, Modifier.padding(top = 22.dp, bottom = 10.dp))
 
 @Composable
-fun IconBtn(icon: Icon, onClick: () -> Unit, size: Dp = 44.dp, color: Color = C.Soft, fill: Boolean = false, iconSize: Dp = 22.dp) {
-    Box(Modifier.size(size).clip(RoundedCornerShape(12.dp)).tap(onClick), contentAlignment = Alignment.Center) { Ico(icon, iconSize, color, fill = fill) }
+fun IconBtn(icon: Icon, onClick: () -> Unit, size: Dp = 44.dp, color: Color = C.Soft, fill: Boolean = false, iconSize: Dp = 22.dp, label: String? = null) {
+    // Подпись — для экранного диктора и e2e-тестов: у иконки нет текста, по которому её найти
+    Box(
+        Modifier.size(size).clip(RoundedCornerShape(12.dp)).tap(onClick)
+            .then(if (label != null) Modifier.semantics { contentDescription = label } else Modifier),
+        contentAlignment = Alignment.Center,
+    ) { Ico(icon, iconSize, color, fill = fill) }
 }
 
 /**

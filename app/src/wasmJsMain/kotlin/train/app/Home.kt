@@ -74,7 +74,7 @@ fun Home(app: AppState) {
         .map { it to planStatus(it.date, it.startedAt, today) }
 
     Page {
-        Header(today.long(), "Тренировки") { IconBtn(Icon.Gear, { app.go(Screen.Settings) }, color = C.Muted) }
+        Header(today.long(), "Тренировки") { IconBtn(Icon.Gear, { app.go(Screen.Settings) }, color = C.Muted, label = "Настройки") }
         StatusTags(app)
 
         if (active != null) {

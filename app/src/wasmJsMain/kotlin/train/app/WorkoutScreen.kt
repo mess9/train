@@ -139,7 +139,7 @@ fun WorkoutScreen(app: AppState) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                IconBtn(Icon.Down, { app.root(Screen.Home) })
+                IconBtn(Icon.Down, { app.root(Screen.Home) }, label = "Свернуть тренировку")
                 Column(Modifier.weight(1f)) {
                     Txt(app.workoutTitle(w), ts(13.sp, C.Muted, FontWeight.Medium), maxLines = 1)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -150,7 +150,7 @@ fun WorkoutScreen(app: AppState) {
                         }
                     }
                 }
-                IconBtn(Icon.Timer, { sheet = WSheet.Tools })
+                IconBtn(Icon.Timer, { sheet = WSheet.Tools }, label = "Таймер и секундомер")
                 Btn("Завершить", {
                     val undone = undoneCount(passes)
                     if (undone > 0) sheet = WSheet.ConfirmFinish(undone) else finishNow()
@@ -363,10 +363,10 @@ private fun ExerciseCard(
                     }
                 }
                 if (reorder) {
-                    if (!first) IconBtn(Icon.Up, { app.act { move(bp.block.id, item.id, -1) } }, 34.dp) else Box(Modifier.size(34.dp))
-                    if (!last) IconBtn(Icon.Down, { app.act { move(bp.block.id, item.id, 1) } }, 34.dp) else Box(Modifier.size(34.dp))
+                    if (!first) IconBtn(Icon.Up, { app.act { move(bp.block.id, item.id, -1) } }, 34.dp, label = "Выше: ${ex?.nameRu.orEmpty()}") else Box(Modifier.size(34.dp))
+                    if (!last) IconBtn(Icon.Down, { app.act { move(bp.block.id, item.id, 1) } }, 34.dp, label = "Ниже: ${ex?.nameRu.orEmpty()}") else Box(Modifier.size(34.dp))
                 } else {
-                    IconBtn(Icon.More, onMenu, 34.dp)
+                    IconBtn(Icon.More, onMenu, 34.dp, label = "Меню: ${ex?.nameRu.orEmpty()}")
                 }
             }
             if (shown.isNotEmpty() || expanded) {
@@ -626,7 +626,8 @@ private fun MenuSheet(
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Txt(ex?.nameRu ?: "Упражнение", ts(17.sp, weight = FontWeight.Bold), Modifier.weight(1f))
         // Сердечко — сразу в шапке меню: одно касание, лист остаётся открытым
-        IconBtn(Icon.Heart, { app.act { like(b.id, item.id, !item.liked) } }, 40.dp, if (item.liked) C.Heart else C.Muted, fill = item.liked)
+        IconBtn(Icon.Heart, { app.act { like(b.id, item.id, !item.liked) } }, 40.dp, if (item.liked) C.Heart else C.Muted, fill = item.liked,
+            label = if (item.liked) "Убрать сердечко" else "Поставить сердечко")
     }
     Column {
         if (complete || expanded) {

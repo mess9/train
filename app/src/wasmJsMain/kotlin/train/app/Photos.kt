@@ -140,7 +140,7 @@ private fun DraftSheet(app: AppState, d: PhotoDraft) {
         }
         Txt("Когда снято", ts(13.sp, C.Muted, FontWeight.Medium))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            IconBtn(Icon.Back, { day = day.minus(DatePeriod(days = 1)) }, 40.dp)
+            IconBtn(Icon.Back, { day = day.minus(DatePeriod(days = 1)) }, 40.dp, label = "День раньше")
             Row(
                 Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(C.Field)
                     .tap { picking = true; pickDate(day.toString(), today.toString()) }.padding(vertical = 10.dp),
@@ -150,7 +150,7 @@ private fun DraftSheet(app: AppState, d: PhotoDraft) {
                 Ico(Icon.Calendar, 18.dp, C.Muted)
                 Txt(if (day == today) "Сегодня" else day.short(), ts(15.sp, weight = FontWeight.SemiBold))
             }
-            IconBtn(Icon.Next, { if (day < today) day = day.plus(DatePeriod(days = 1)) }, 40.dp, if (day < today) C.Soft else C.Dash)
+            IconBtn(Icon.Next, { if (day < today) day = day.plus(DatePeriod(days = 1)) }, 40.dp, if (day < today) C.Soft else C.Dash, label = "День позже")
         }
         Txt("Ракурс", ts(13.sp, C.Muted, FontWeight.Medium))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -190,7 +190,7 @@ private fun Viewer(app: AppState, photo: Photo?, id: Uuid, img: androidx.compose
                     if (sub.isNotEmpty()) Txt(sub, T.meta)
                 }
             }
-            IconBtn(Icon.Close, p::closePhoto)
+            IconBtn(Icon.Close, p::closePhoto, label = "Закрыть")
         }
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             p.deleteError?.let { Txt(it, ts(13.sp, C.Danger)) }

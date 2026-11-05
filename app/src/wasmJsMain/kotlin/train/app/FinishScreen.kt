@@ -219,7 +219,8 @@ private fun FinishItem(app: AppState, item: ItemComparison, tint: Tint, onLike: 
                     item.sets.mapNotNull { it.fact }.forEach { RateDot(it.rating, 7.dp) }
                 }
             }
-            IconBtn(Icon.Heart, onLike, 44.dp, if (item.liked) C.Heart else C.Dash, fill = item.liked, iconSize = 22.dp)
+            IconBtn(Icon.Heart, onLike, 44.dp, if (item.liked) C.Heart else C.Dash, fill = item.liked, iconSize = 22.dp,
+                label = "Сердечко: ${item.name ?: ex?.nameRu ?: "упражнение"}")
         }
     }
 }
