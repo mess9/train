@@ -5,6 +5,13 @@ pipeline {
         ansiColor('xterm')
     }
 
+    // Сборка по пушу в main: Jenkins сам опрашивает Gitea раз в ~2 минуты. Включается после первой
+    // сборки с этим Jenkinsfile. Вебхук Gitea на /git/notifyCommit (с токеном) тоже сработает — ему
+    // нужен именно этот триггер.
+    triggers {
+        pollSCM('H/2 * * * *')
+    }
+
     environment {
         REGISTRY = "localhost:5000/mess9"
         IMAGE_TAG = "${env.BUILD_NUMBER}"
