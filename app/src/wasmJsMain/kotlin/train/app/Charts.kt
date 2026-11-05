@@ -303,9 +303,10 @@ fun WeightChart(points: List<Measurement>, modifier: Modifier = Modifier) {
         val span = (points.last().measuredAt.toEpochMilliseconds() - t0).coerceAtLeast(1.0)
         fun x(m: Measurement) = (left + 6.dp.toPx() + (size.width - left - 12.dp.toPx()) * ((m.measuredAt.toEpochMilliseconds() - t0) / span)).toFloat()
         fun y(v: Double) = (bottom - (bottom - top) * ((v - lo) / (hi - lo))).toFloat()
-        listOf(hi - 0.5, (hi + lo) / 2, lo + 0.5).forEach { v ->
+        // Метки — максимум, середина, минимум, округлённые до 0,1; совпавшие (вес не менялся) — одной
+        listOf(hi - 0.5, (hi + lo) / 2, lo + 0.5).map { (it * 10).roundToInt() / 10.0 }.distinct().forEach { v ->
             drawLine(C.Border, Offset(left, y(v)), Offset(size.width, y(v)), 1.dp.toPx())
-            val t = tm.measure(num((v * 10).roundToInt() / 10.0), axis)
+            val t = tm.measure(num(v), axis)
             drawText(t, topLeft = Offset(left - t.size.width - 6.dp.toPx(), y(v) - t.size.height / 2))
         }
         val line = Path().apply {
@@ -323,7 +324,8 @@ fun WeightChart(points: List<Measurement>, modifier: Modifier = Modifier) {
         val first = tm.measure(points.first().measuredAt.date().dm(), axis)
         val last = tm.measure(points.last().measuredAt.date().dm(), axis)
         drawText(first, topLeft = Offset(left, size.height - first.size.height))
-        drawText(last, topLeft = Offset(size.width - last.size.width, size.height - last.size.height))
+        if (points.last().measuredAt.date() != points.first().measuredAt.date())
+            drawText(last, topLeft = Offset(size.width - last.size.width, size.height - last.size.height))
     }
 }
 
