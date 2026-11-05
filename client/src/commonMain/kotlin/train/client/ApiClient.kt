@@ -38,6 +38,7 @@ import train.core.Profile
 import train.core.Purged
 import train.core.ServerInfo
 import train.core.SetFact
+import train.core.Stats
 import train.core.SourceExercise
 import train.core.SyncPut
 import train.core.Trash
@@ -136,6 +137,10 @@ class ApiClient(
         put("/workouts/${body.data.workoutId}/sets/${body.data.id}", body)
 
     suspend fun compare(workoutId: Uuid): Comparison = get("/workouts/$workoutId/compare")
+
+    /** Сводка за период: мышцы, участки тела, минуты по дням. Без дат — последние 30 дней. */
+    suspend fun stats(from: LocalDate? = null, to: LocalDate? = null): Stats =
+        get("/stats" + query("from" to from?.toString(), "to" to to?.toString()))
 
     // Замеры, профиль, корзина
 
