@@ -7,3 +7,7 @@ local.properties
 *.env
 !*.env.example
 .claude/settings.local.json
+
+# Каталоги конвертера с личными данными — вне репозитория (ADR 0013)
+/import/*/
+/import/*.json
