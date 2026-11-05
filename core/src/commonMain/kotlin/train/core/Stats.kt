@@ -70,6 +70,13 @@ const val SECONDARY_SHARE = 0.5
 @Serializable
 data class RegionLoad(val region: BodyRegion, val sets: Double)
 
+/**
+ * Луч розы: подход входит в группу один раз — целым, если в ней основная мышца, иначе
+ * [SECONDARY_SHARE]. Не сумма участков: у ног их четыре, и выпад иначе давал бы ногам 2 подхода.
+ */
+@Serializable
+data class GroupLoad(val group: BodyGroup, val sets: Double)
+
 /** Мышца как в датасете: сколько подходов она была основной и вспомогательной. Для агента. */
 @Serializable
 data class MuscleLoad(val muscle: String, val primary: Int, val secondary: Int)
@@ -92,11 +99,12 @@ data class Stats(
     val muscles: List<MuscleLoad>,
     /** Только дни с тренировками, по порядку. */
     val days: List<DayLoad>,
+    /** Все группы, и с нулём. */
+    val groups: List<GroupLoad> = emptyList(),
 ) {
     fun load(region: BodyRegion): Double = regions.firstOrNull { it.region == region }?.sets ?: 0.0
 
-    /** Луч розы: сумма участков группы. */
-    fun load(group: BodyGroup): Double = regions.filter { it.region.group == group }.sumOf { it.sets }
+    fun load(group: BodyGroup): Double = groups.firstOrNull { it.group == group }?.sets ?: 0.0
 }
 
 /**
@@ -119,15 +127,20 @@ fun stats(
     val byWorkout = done.groupBy { it.workoutId }
 
     val regions = BodyRegion.entries.associateWith { 0.0 }.toMutableMap()
+    val groups = BodyGroup.entries.associateWith { 0.0 }.toMutableMap()
     val primary = mutableMapOf<String, Int>()
     val secondary = mutableMapOf<String, Int>()
     for (s in done) {
         val ex = exercises[s.exerciseId] ?: continue
         // Одна мышца, записанная и основной, и вспомогательной, или два названия одного участка — участок один раз
         val main = ex.musclesPrimary.mapNotNull(::regionOf).toSet()
-        val extra = ex.musclesSecondary.mapNotNull(::regionOf).toSet() - main
+        // Основная не на карте (кардио: бег, скакалка) — вспомогательные ноги не красим, иначе разминка забивает карту
+        val extra = if (main.isEmpty()) emptySet() else ex.musclesSecondary.mapNotNull(::regionOf).toSet() - main
         main.forEach { regions[it] = regions.getValue(it) + 1.0 }
         extra.forEach { regions[it] = regions.getValue(it) + SECONDARY_SHARE }
+        val mainGroups = main.map { it.group }.toSet()
+        mainGroups.forEach { groups[it] = groups.getValue(it) + 1.0 }
+        (extra.map { it.group }.toSet() - mainGroups).forEach { groups[it] = groups.getValue(it) + SECONDARY_SHARE }
         ex.musclesPrimary.distinct().forEach { primary[it] = (primary[it] ?: 0) + 1 }
         ex.musclesSecondary.distinct().forEach { secondary[it] = (secondary[it] ?: 0) + 1 }
     }
@@ -157,6 +170,7 @@ fun stats(
         muscles = (primary.keys + secondary.keys).map { MuscleLoad(it, primary[it] ?: 0, secondary[it] ?: 0) }
             .sortedWith(compareByDescending<MuscleLoad> { it.primary + it.secondary * SECONDARY_SHARE }.thenBy { it.muscle }),
         days = days,
+        groups = BodyGroup.entries.map { GroupLoad(it, groups.getValue(it)) },
     )
 }
 

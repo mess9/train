@@ -12,8 +12,10 @@ import kotlin.time.Duration.Companion.minutes
 class StatsTest {
     private val bench = exercise("Жим лёжа").copy(musclesPrimary = listOf("pectorals"), musclesSecondary = listOf("triceps", "shoulders"))
     private val squat = exercise("Присед").copy(musclesPrimary = listOf("quads"), musclesSecondary = listOf("glutes", "quadriceps"))
-    private val run = exercise("Бег", type = RecordType.TIME).copy(musclesPrimary = listOf("cardiovascular system"))
-    private val exercises = listOf(bench, squat, run).associateBy { it.id }
+    private val run = exercise("Бег", type = RecordType.TIME)
+        .copy(musclesPrimary = listOf("cardiovascular system"), musclesSecondary = listOf("quadriceps", "calves"))
+    private val lunge = exercise("Выпад").copy(musclesPrimary = listOf("quads"), musclesSecondary = listOf("glutes", "hamstrings", "calves"))
+    private val exercises = listOf(bench, squat, run, lunge).associateBy { it.id }
 
     private val day = LocalDate(2026, 11, 3)
 
@@ -41,6 +43,20 @@ class StatsTest {
         assertEquals(50, st.minutes)
         assertEquals(40.0 * 18 + 60.0 * 5, st.volumeKg)
         assertEquals(listOf(DayLoad(day, 1, 50, 3)), st.days)
+    }
+
+    /** Подход входит в луч розы один раз, сколько бы участков группы он ни задел. */
+    @Test
+    fun groupCountsSetOnce() {
+        val l = item(lunge, TargetSet(), TargetSet())
+        val w = workout(block(l)).copy(date = day)
+        val st = stats(day, day, listOf(w), listOf(w.fact(l, 1, 12.0, 10), w.fact(l, 2, 12.0, 10)), exercises)
+        assertEquals(2.0, st.load(BodyRegion.QUADS))
+        assertEquals(1.0, st.load(BodyRegion.HAMSTRINGS))
+        assertEquals(1.0, st.load(BodyRegion.CALVES))
+        assertEquals(2.0, st.load(BodyGroup.LEGS))
+        assertEquals(1.0, st.load(BodyGroup.GLUTES))
+        assertEquals(BodyGroup.entries.size, st.groups.size)
     }
 
     @Test
@@ -84,8 +100,10 @@ class StatsTest {
         val st = stats(day, day, listOf(w), listOf(w.fact(r, 1, seconds = 600, minute = 12)), exercises)
         assertEquals(12, st.minutes)
         assertEquals(1, st.sets)
+        // Вспомогательные ноги у кардио не красятся: основная не на карте
         assertEquals(0.0, st.regions.sumOf { it.sets })
-        assertEquals(listOf(MuscleLoad("cardiovascular system", 1, 0)), st.muscles)
+        assertEquals(0.0, st.groups.sumOf { it.sets })
+        assertEquals(MuscleLoad("cardiovascular system", 1, 0), st.muscles.first())
         assertNull(regionOf("cardiovascular system"))
         assertEquals(BodyRegion.UPPER_BACK, regionOf(" Lats "))
     }

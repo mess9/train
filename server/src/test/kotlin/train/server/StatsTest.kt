@@ -72,5 +72,6 @@ class StatsTest {
         val st = api.get<Stats>("/api/stats?from=$today&to=$today")
         assertEquals(0, st.workouts)
         assertEquals(BodyRegion.entries.size, st.regions.size)
+        assertEquals(BodyGroup.entries.size, st.groups.size)
     }
 }
