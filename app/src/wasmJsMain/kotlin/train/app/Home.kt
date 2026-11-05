@@ -134,14 +134,14 @@ fun Home(app: AppState) {
         if (upcoming.isNotEmpty()) {
             Section("Ближайшие")
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                upcoming.forEach { (p, _) -> PlanRow(p.date.short(), p.title ?: "Тренировка", { Txt(p.stats(), T.meta) }) { app.go(Screen.PlanView(p.id)) } }
+                upcoming.forEach { (p, _) -> PlanCard(p) { app.go(Screen.PlanView(p.id)) } }
             }
         }
         val overdue = plans.filter { it.second == PlanStatus.OVERDUE }.sortedByDescending { it.first.date }.take(6)
         if (overdue.isNotEmpty()) {
             Section("Просрочено")
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                overdue.forEach { (p, _) -> PlanRow(p.date.short(), p.title ?: "Тренировка", { LateTag("ждёт агента") }) { app.go(Screen.PlanView(p.id)) } }
+                overdue.forEach { (p, _) -> PlanCard(p, late = true) { app.go(Screen.PlanView(p.id)) } }
             }
         }
     }
@@ -151,10 +151,7 @@ fun Home(app: AppState) {
 private fun TodayCard(p: Plan, going: Boolean, onClick: () -> Unit) {
     Surface(Modifier.fillMaxWidth().tap(onClick), border = C.Lime, radius = 18.dp) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Txt(p.title ?: "Тренировка", ts(20.sp, weight = FontWeight.Bold), Modifier.weight(1f))
-                if (going) AccentTag("идёт")
-            }
+            CardTitle(p.title) { if (going) AccentTag("идёт") }
             Txt(p.blocksLine(), ts(14.sp, C.Soft))
             Txt("${p.stats()} · план от агента", T.meta)
         }
@@ -167,12 +164,38 @@ private fun DoneCard(app: AppState, p: Plan) {
     val minutes = w?.finishedAt?.let { ((it - w.startedAt).inWholeMinutes).toInt() }
     Surface(Modifier.fillMaxWidth().then(if (w != null) Modifier.tap { app.go(Screen.HistoryDetail(w.id)) } else Modifier), border = C.Border, radius = 18.dp) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Txt(p.title ?: "Тренировка", ts(20.sp, weight = FontWeight.Bold), Modifier.weight(1f))
+            CardTitle(p.title) {
                 // Начата на другом устройстве и не закрыта — вести её отсюда MVP не умеет
                 if (w?.finishedAt == null) Tag("не закончена") else AccentTag("выполнено")
             }
             Txt((minutes?.let { "$it мин · " } ?: "") + "агент проанализирует и предложит следующие", T.meta)
+        }
+    }
+}
+
+/** Заголовок карточки «Сегодня»: название пишет агент, длина любая — до трёх строк, метка справа сверху. */
+@Composable
+private fun CardTitle(title: String?, tag: @Composable () -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Txt(title ?: "Тренировка", ts(20.sp, weight = FontWeight.Bold), Modifier.weight(1f), maxLines = 3)
+        Box(Modifier.padding(top = 3.dp)) { tag() }
+    }
+}
+
+/**
+ * Карточка будущего или просроченного плана. Название на всю ширину — его пишет агент,
+ * длина любая; ниже — дата и состав или, у просроченного, дата и метка.
+ */
+@Composable
+private fun PlanCard(p: Plan, late: Boolean = false, onClick: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Card).tap(onClick).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Txt(p.title ?: "Тренировка", T.strong, maxLines = 2)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Txt(p.date.short(), ts(13.sp, C.Soft, FontWeight.Medium))
+            if (late) LateTag("ждёт агента") else Txt("· ${p.stats()}", T.meta, Modifier.weight(1f), maxLines = 1)
         }
     }
 }
