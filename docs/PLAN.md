@@ -356,7 +356,8 @@ MockEngine. Решения по ходу:
 **Развёрнуто на shelezyaka 2026-11-04** — Jenkins-задача `train` по `Jenkinsfile`, как у
 mediabots: тесты в образе → сборка → push в `localhost:5000` → проверка датасета →
 `docker compose up` с credential `train-env` → smoke-тест → webhook в n8n. Первая сборка — около
-8 минут. Адрес — `https://train.fil-lost.org` (туннель → Traefik), Cloudflare Access пока нет,
+8 минут. Сборка — по пушу в `main`: вебхук Gitea на `/git/notifyCommit` и `pollSCM` раз в 2 минуты
+как запасной путь (2026-11-05). Адрес — `https://train.fil-lost.org` (туннель → Traefik), Cloudflare Access пока нет,
 только ключ. База — в ночных дампах shelezyaka (`train.sql.gz`) и в проверке восстановления.
 - Quarkus в проде отдаёт статику как `public, immutable, max-age=86400`, и Cloudflare держал
   `sw.js` на краю. Файлам без хеша в имени (`/`, `index.html`, `sw.js`, манифест) сервер
