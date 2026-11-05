@@ -118,7 +118,81 @@
         return h >= 80 ? h : 0;
       }
 
-      return { lock: '?', wake, showGif, hideGif, beep, keyboard };
+      // Фото прогресса: <input type=file> — камера (capture) или галерея телефона. Сжимаем здесь же:
+      // длинная сторона до 2000 px, JPEG 0.85 — снимок в 4–12 МБ становится 300–900 КБ, лимит
+      // сервера 15 МБ. Kotlin опрашивает bridge.photo: picking → busy → ready | error | none
+      let photo = { state: 'none' };
+      function pickPhoto(camera) {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        if (camera) input.capture = 'environment';
+        photo = { state: 'picking' };
+        input.addEventListener('cancel', () => { if (photo.state === 'picking') photo = { state: 'none' }; });
+        input.addEventListener('change', () => {
+          const f = input.files && input.files[0];
+          if (f) usePhoto(f, camera); else photo = { state: 'none' };
+        });
+        input.click();
+      }
+      async function usePhoto(f, camera) {
+        photo = { state: 'busy' };
+        try {
+          // Из галереи — дата файла: снято раньше, чем выбрано. С камеры — сейчас
+          photo = { state: 'ready', ...(await compress(f)), takenAt: camera ? Date.now() : (f.lastModified || Date.now()) };
+        } catch (e) {
+          photo = { state: 'error', message: String((e && e.message) || e) };
+        }
+      }
+      async function compress(f) {
+        const MAX = 2000;
+        let bmp;
+        try {
+          bmp = await createImageBitmap(f, { imageOrientation: 'from-image' });
+        } catch (e) {
+          // Формат, который браузер не рисует (HEIC в Chrome), — как есть: сервер его примет
+          if (f.size > 15 * 1024 * 1024) throw new Error('файл больше 15 МБ');
+          return { data: await base64(f), type: f.type || 'image/heic' };
+        }
+        const k = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(bmp.width * k);
+        c.height = Math.round(bmp.height * k);
+        c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+        if (bmp.close) bmp.close();
+        const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
+        if (!blob) throw new Error('не удалось сжать фото');
+        return { data: await base64(blob), type: 'image/jpeg' };
+      }
+      function base64(blob) {
+        return new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(String(r.result).split(',')[1] || '');
+          r.onerror = () => reject(r.error);
+          r.readAsDataURL(blob);
+        });
+      }
+      function photoReset() { photo = { state: 'none' }; }
+
+      // Дата задним числом: системный выбор даты телефона. Kotlin забирает выбранное takeDate()
+      let date = '';
+      function pickDate(current, max) {
+        const i = document.createElement('input');
+        i.type = 'date';
+        i.value = current;
+        if (max) i.max = max;
+        Object.assign(i.style, { position: 'fixed', left: '50%', top: '40%', width: '1px', height: '1px', opacity: '0' });
+        document.body.appendChild(i);
+        i.addEventListener('change', () => { if (i.value) date = i.value; i.remove(); });
+        i.addEventListener('blur', () => setTimeout(() => i.remove(), 1000));
+        try { i.showPicker(); } catch (e) { i.focus(); i.click(); }
+      }
+      function takeDate() { const d = date; date = ''; return d; }
+
+      return {
+        lock: '?', wake, showGif, hideGif, beep, keyboard,
+        pickPhoto, usePhoto, photoReset, get photo() { return photo; }, pickDate, takeDate,
+      };
     })();
 
     // Замок «одна вкладка — одна активная тренировка» берётся до старта приложения:

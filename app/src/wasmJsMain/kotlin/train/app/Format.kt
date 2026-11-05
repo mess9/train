@@ -37,6 +37,17 @@ fun LocalDate.short() = "${daysShort[dayOfWeek.index]}, $day ${monthsShort[month
 /** «3 ноября» */
 fun LocalDate.dayMonth() = "$day ${months[month.ordinal]}"
 
+/** «Вт» */
+fun LocalDate.weekday() = daysShort[dayOfWeek.index]
+
+private val monthsAlone = listOf("янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек")
+
+/** «ноя» — месяц сам по себе, подпись столбика */
+fun LocalDate.monthAlone() = monthsAlone[month.ordinal]
+
+/** «3.11» — коротко для осей */
+fun LocalDate.dm() = "$day.${(month.ordinal + 1).toString().padStart(2, '0')}"
+
 /** «14:05» по часам телефона */
 fun Instant.clock(): String = toLocalDateTime(zone).let { "${it.hour.pad()}:${it.minute.pad()}" }
 

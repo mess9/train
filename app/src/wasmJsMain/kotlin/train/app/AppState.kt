@@ -47,6 +47,7 @@ import train.core.WorkoutLayout
 import train.core.accepted
 import train.core.conflict
 import train.core.loadSession
+import train.core.measure
 import train.core.newId
 import train.core.saveSession
 import train.core.snapshot
@@ -314,25 +315,31 @@ class AppState(private val scope: CoroutineScope) {
     var profileError by mutableStateOf<String?>(null)
         private set
 
+    /** Включить или выключить вибрацию. */
+    fun setVibration(on: Boolean) = updateProfile { it.copy(vibration = on) }
+
+    /** Рост, см: агент видит его рядом с весом тела. `null` — стереть. */
+    fun setHeight(cm: Double?) = updateProfile { it.copy(heightCm = cm) }
+
     /**
-     * Включить или выключить вибрацию. Сразу на экране, потом на сервере: профиль меняется целиком,
-     * поэтому сначала свежая его версия — имя и оборудование из `gym profile` не затираются.
-     * Сервер не принял — настройка возвращается.
+     * Поменять профиль: сразу на экране, потом на сервере. Профиль меняется целиком, поэтому
+     * сначала свежая его версия — имя и оборудование из `gym profile` не затираются. Сервер не
+     * принял — настройка возвращается.
      */
-    fun setVibration(on: Boolean) {
+    private fun updateProfile(change: (Profile) -> Profile) {
         val k = key ?: return
         val before = cache.profile
         profileError = null
-        saveCache(cache.copy(profile = (before ?: Profile()).copy(vibration = on)))
+        saveCache(cache.copy(profile = change(before ?: Profile())))
         scope.launch {
             try {
                 val c = client(k)
-                val saved = c.putProfile(c.profile().copy(vibration = on))
+                val saved = c.putProfile(change(c.profile()))
                 if (key == k) saveCache(cache.copy(profile = saved))
             } catch (e: Throwable) {
                 if (key != k) return@launch
                 saveCache(cache.copy(profile = before))
-                profileError = "Не сохранилось: " + (linkText(linkOf(e)) ?: "ошибка сервера")
+                profileError = "Не сохранилось: " + (linkText(linkOf(e)) ?: e.message ?: "ошибка сервера")
             }
         }
     }
@@ -371,8 +378,18 @@ class AppState(private val scope: CoroutineScope) {
         saveCache(withUnsent(next))
     }
 
-    /** Замер виден в «Раньше» сразу, ещё до отправки. */
-    fun rememberMeasurements(ms: List<Measurement>) = saveCache(cache.copy(measurements = ms + cache.measurements))
+    /** Замер виден в «Раньше» сразу, ещё до отправки; исправленный заменяет прежний. */
+    fun rememberMeasurements(ms: List<Measurement>) {
+        val ids = ms.map { it.id }.toSet()
+        saveCache(cache.copy(measurements = ms + cache.measurements.filterNot { it.id in ids }))
+    }
+
+    /** Замер — в очередь и сразу на экран. */
+    fun saveMeasurements(ms: List<Measurement>) {
+        if (ms.isEmpty()) return
+        act { ms.fold(this) { s, m -> s.measure(m) } }
+        rememberMeasurements(ms)
+    }
 
     /** Закрытая тренировка — в историю до следующего обновления. */
     fun rememberWorkout(w: Workout) = saveCache(cache.copy(workouts = listOf(w) + cache.workouts.filterNot { it.id == w.id }))
@@ -467,6 +484,9 @@ class AppState(private val scope: CoroutineScope) {
         }
     }
 
+    /** Сводка за период и фото прогресса — раздел «Замеры». */
+    val progress = Progress(scope, api, { link = it }) { id -> session?.outbox?.pending?.any { it.record is Workout && it.record.id == id } == true }
+
     // История: разбор с сервера, в памяти
 
     val comparisons = mutableStateMapOf<Uuid, Comparison>()
@@ -479,7 +499,7 @@ class AppState(private val scope: CoroutineScope) {
     fun start() {
         window.history.replaceState(0.toJsNumber(), "")
         window.addEventListener("popstate") { onPop() }
-        window.addEventListener("online") { poke(); refresh(force = false) }
+        window.addEventListener("online") { poke(); refresh(force = false); progress.retry() }
         document.addEventListener("visibilitychange") {
             if (pageVisible()) {
                 poke()
