@@ -144,6 +144,19 @@ class ApiTest {
     }
 
     @Test
+    fun planWithUnknownFieldIsRejected() {
+        val api = newUser()
+        val bench = api.exercise()
+        val json = """{"date":"2026-11-04","body":{"blocks":[{"items":[
+            {"exerciseId":"${bench.id}","sets":[{"weight":10,"reps":20}]}]}]}}"""
+        val r = api.spec().body(json).put("/api/plans/${newId()}")
+        assertEquals(400, r.statusCode, r.body.asString())
+        val error = TrainJson.decodeFromString(ApiError.serializer(), r.body.asString()).error
+        assertTrue("'reps'" in error && "sets[0]" in error, error)
+        assertTrue(api.get<List<Plan>>("/api/plans").isEmpty())
+    }
+
+    @Test
     fun startFromOldVersionIsAccepted() {
         val api = newUser()
         val bench = api.exercise()

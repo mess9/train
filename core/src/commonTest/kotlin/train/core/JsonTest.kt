@@ -1,8 +1,10 @@
 package train.core
 
 import kotlinx.datetime.LocalDate
+import kotlinx.serialization.SerializationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
@@ -12,6 +14,18 @@ class JsonTest {
     fun unknownFieldsAreIgnored() {
         val info = TrainJson.decodeFromString<ServerInfo>("""{"name":"train","version":"1","extra":true}""")
         assertEquals(ServerInfo("train", "1"), info)
+    }
+
+    @Test
+    fun strictNamesUnknownFieldWithPath() {
+        val json = """{"date":"2026-11-04","body":{"blocks":[{"items":[
+            {"exerciseId":"019a4a2e-0000-7000-8000-000000000001","sets":[{"weight":10,"reps":20}]}]}]}}"""
+        assertEquals(null, TrainJson.decodeFromString<PlanPut>(json).body.blocks[0].items[0].sets[0].repsMax)
+        val e = assertFailsWith<SerializationException> { decodeStrict(PlanPut.serializer(), json) }
+        val m = e.message!!
+        assertTrue("'reps'" in m, m)
+        assertTrue("sets[0]" in m, m)
+        assertFalse("ignoreUnknownKeys" in m, m)
     }
 
     @Test

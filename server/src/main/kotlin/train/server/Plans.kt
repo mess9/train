@@ -1,18 +1,21 @@
 package train.server
 
 import jakarta.transaction.Transactional
+import jakarta.ws.rs.Consumes
 import jakarta.ws.rs.DELETE
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.PUT
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
 import jakarta.ws.rs.QueryParam
+import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import org.jboss.resteasy.reactive.RestResponse
 import train.core.API_PREFIX
 import train.core.Plan
 import train.core.PlanBody
 import train.core.PlanPut
+import train.core.decodeStrict
 
 @Path("$API_PREFIX/plans")
 class PlanResource(
@@ -39,12 +42,15 @@ class PlanResource(
     /**
      * Создать или заменить план: каждая запись — новая неизменяемая версия. Начатый план не
      * меняется — `409` с текущим состоянием. Запись из корзины возвращается.
+     * Тело — [PlanPut] строго: незнакомое поле — `400` с его путём, а не молча потерянная цель.
      */
     @PUT
     @Path("{id}")
+    @Consumes(MediaType.APPLICATION_JSON)
     @Transactional
-    fun put(@PathParam("id") id: String, body: PlanPut): RestResponse<Plan> {
+    fun put(@PathParam("id") id: String, text: String): RestResponse<Plan> {
         val planId = parseId(id)
+        val body = decodeStrict(PlanPut.serializer(), text)
         validate(body.body)
         val owner = db.one("select user_id from plan where id = ? for update", planId) { it.uuidReq("user_id") }
         if (owner != null && owner != user.id) throw notFound()

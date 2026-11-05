@@ -76,6 +76,16 @@ class CliTest {
     }
 
     @Test
+    fun planPutRejectsUnknownField() {
+        val input = file("""{"date": "2026-11-04", "body": {"blocks": [{"items": [
+            {"exerciseId": "${newId()}", "sets": [{"weight": 10, "reps": 20}]}]}]}}""")
+        val r = gym("plan put $input") { HttpStatusCode.OK to TrainJson.encodeToString(Plan.serializer(), plan) }
+        assertEquals(1, r.statusCode)
+        assertTrue("'reps'" in r.stderr && "sets[0]" in r.stderr, r.stderr)
+        assertTrue(requests.isEmpty())
+    }
+
+    @Test
     fun planPutWithoutIdCreatesNew() {
         val input = file("""{"date": "2026-11-04", "body": {"blocks": []}}""")
         assertEquals(0, gym("plan put $input") { HttpStatusCode.OK to TrainJson.encodeToString(Plan.serializer(), plan) }.statusCode)

@@ -23,6 +23,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atTime
 import kotlinx.datetime.toInstant
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -31,11 +32,13 @@ import train.core.ExerciseCreate
 import train.core.ExercisePatch
 import train.core.Measurement
 import train.core.PhotoPatch
+import train.core.Plan
 import train.core.PlanPut
 import train.core.Profile
 import train.core.RecordType
 import train.core.SyncPut
 import train.core.TrainJson
+import train.core.decodeStrict
 import train.core.User
 import train.core.UserCreate
 import train.core.newId
@@ -99,11 +102,19 @@ class PlanPutCmd : ApiCommand(
         val json = runCatching { TrainJson.parseToJsonElement(text).jsonObject }
             .getOrElse { fail("не JSON-объект: ${it.message}") }
         val planId = id ?: (json["id"] as? JsonPrimitive)?.content?.let(::parseUuid) ?: newId()
-        val body = runCatching { TrainJson.decodeFromJsonElement(PlanPut.serializer(), JsonObject(json - "id")) }
+        val body = runCatching { decodeStrict(PlanPut.serializer(), JsonObject(json - PLAN_OUTPUT_ONLY).toString()) }
             .getOrElse { fail("план не разобран: ${it.message}") }
         out(accepted(api.putPlan(planId, body)) { "план уже начат (${it.startedAt}) — меняется только новый план" })
     }
 }
+
+/**
+ * Поля вывода `plan get`, которых нет во вводе (`id`, `version`, `status`…): их отбрасываем,
+ * остальное разбирается строго — опечатка в имени поля даёт ошибку, а не теряется.
+ */
+private val PLAN_OUTPUT_ONLY: Set<String> = names(Plan.serializer().descriptor) - names(PlanPut.serializer().descriptor)
+
+private fun names(d: SerialDescriptor) = (0 until d.elementsCount).map(d::getElementName).toSet()
 
 class PlanList : ApiCommand("list", "Планы, по дате; удалённые — в `trash list`") {
     private val from by option("--from", help = "с даты, YYYY-MM-DD").date()
@@ -306,7 +317,7 @@ class ProfilePut : ApiCommand("put", "Заменить профиль. JSON: {na
     private val file by argument(help = "файл JSON или - для stdin")
     override suspend fun exec() {
         val text = readInput(file)
-        val p = runCatching { TrainJson.decodeFromString(Profile.serializer(), text) }
+        val p = runCatching { decodeStrict(Profile.serializer(), text) }
             .getOrElse { fail("профиль не разобран: ${it.message}") }
         out(api.putProfile(p))
     }
