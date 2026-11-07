@@ -17,7 +17,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import train.client.Link
+import train.core.BODYFAT
+import train.core.BODYFAT_PHOTO
 import train.core.BODYWEIGHT
+import train.core.FOLD_ABDOMEN
+import train.core.FOLD_CHEST
+import train.core.FOLD_THIGH
 import train.core.ItemComparison
 import train.core.ItemOutcome
 import train.core.Measurement
@@ -109,7 +114,7 @@ fun HistoryDetail(app: AppState, id: Uuid) {
         Txt(app.workoutTitle(w), T.h1, Modifier.padding(top = 2.dp))
         Gap(12.dp)
         if (c != null) {
-            TotalsRow(c.totals)
+            TotalsRow(c.totals, c.bodyweightKg)
             Gap(10.dp)
             OutcomeChips(c)
         } else {
@@ -168,10 +173,21 @@ fun HistoryDetail(app: AppState, id: Uuid) {
     }
 }
 
-private val mlabels = mapOf(BODYWEIGHT to "Вес", "waist" to "Талия", "chest" to "Грудь", "biceps" to "Бицепс")
+private val mlabels = mapOf(
+    BODYWEIGHT to "Вес", "waist" to "Талия", "chest" to "Грудь", "biceps" to "Бицепс",
+    FOLD_CHEST to "Складка груди", FOLD_ABDOMEN to "Складка живота", FOLD_THIGH to "Складка бедра",
+    BODYFAT to "Жир по складкам", BODYFAT_PHOTO to "Жир по фото",
+)
 
-fun measureText(m: Measurement) =
-    "${mlabels[m.type] ?: m.type} ${num(m.value)} ${if (m.unit == "kg") "кг" else if (m.unit == "cm") "см" else m.unit}"
+fun unitRu(unit: String) = when (unit) {
+    "kg" -> " кг"
+    "cm" -> " см"
+    "mm" -> " мм"
+    "%" -> " %"
+    else -> " $unit"
+}
+
+fun measureText(m: Measurement) = "${mlabels[m.type] ?: m.type} ${num(m.value)}${unitRu(m.unit)}"
 
 @Composable
 private fun ExerciseCard(app: AppState, item: ItemComparison, tint: Tint) {

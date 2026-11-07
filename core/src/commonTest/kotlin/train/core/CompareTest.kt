@@ -97,6 +97,22 @@ class CompareTest {
     }
 
     @Test
+    fun repsWithoutWeightOrShareAreNotUnknown() {
+        // Скакалка на прыжки и скручивания: считать нечего — не звёздочка «нет взвешивания»
+        val rope = exercise("Скакалка", type = RecordType.REPS)
+        val pullUp = exercise("Подтягивания", type = RecordType.REPS, bodyweightFactor = 1.0)
+        val jump = item(rope, TargetSet(repsMax = 100))
+        val pull = item(pullUp, TargetSet(repsMax = 8))
+        val wk = workout(block(jump, pull))
+        val sets = listOf(wk.fact(jump, 1, reps = 105), wk.fact(pull, 1, reps = 8))
+        val withWeight = compare(wk, sets, listOf(rope, pullUp).associateBy { it.id }, bodyweight = 60.0).totals
+        assertEquals(60.0 * 8, withWeight.volumeKg)
+        assertEquals(0, withWeight.volumeUnknownSets)
+        // Без взвешивания неизвестны только подтягивания
+        assertEquals(1, compare(wk, sets, listOf(rope, pullUp).associateBy { it.id }).totals.volumeUnknownSets)
+    }
+
+    @Test
     fun workSetsAndTimeUnderLoad() {
         val rope = exercise("Скакалка", type = RecordType.TIME)
         val plank = exercise("Боковая планка", type = RecordType.TIME, perSide = true)

@@ -59,9 +59,9 @@ fun StatTile(label: String, value: String, modifier: Modifier, icon: Icon? = nul
     }
 }
 
-/** Время · объём · подходы из плана. */
+/** Время · объём · подходы из плана. `bodyweight` — с каким весом тела посчитан объём. */
 @Composable
-fun TotalsRow(t: Totals) {
+fun TotalsRow(t: Totals, bodyweight: Double?) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         StatTile("Время", t.durationSec?.let { hms(it.seconds) } ?: "—", Modifier.weight(1f), Icon.Clock)
         StatTile("Объём", thousands(t.volumeKg.roundToLong()) + (if (t.volumeUnknownSets > 0) "*" else "") + " кг", Modifier.weight(1f), Icon.Dumbbell)
@@ -69,7 +69,8 @@ fun TotalsRow(t: Totals) {
     }
     if (t.volumeUnknownSets > 0) {
         Gap(6.dp)
-        Txt("* без ${t.volumeUnknownSets} ${plural(t.volumeUnknownSets, "подхода", "подходов", "подходов")} с собственным весом: нет взвешивания", T.small)
+        val n = "${t.volumeUnknownSets} ${plural(t.volumeUnknownSets, "подхода", "подходов", "подходов")}"
+        Txt(if (bodyweight == null) "* без $n с собственным весом: нет взвешивания" else "* без $n: не записан вес или повторы", T.small)
     }
 }
 
@@ -164,7 +165,7 @@ fun Finish(app: AppState) {
         Header("Тренировка завершена", app.workoutTitle(w))
         Txt(w.startedAt.date().long() + " · " + w.startedAt.clock() + "–" + w.finishedAt!!.clock(), T.kicker)
         Gap(12.dp)
-        TotalsRow(c.totals)
+        TotalsRow(c.totals, c.bodyweightKg)
         Gap(12.dp)
         OutcomeChips(c)
 
@@ -174,7 +175,7 @@ fun Finish(app: AppState) {
             val tints = tints(c.blocks.map { it.role })
             c.blocks.forEachIndexed { bi, b ->
                 b.items.forEach { item ->
-                    FinishItem(app, item, tints[bi]) { app.act { like(b.blockId, item.itemId, !item.liked) } }
+                    FinishItem(app, item, tints[bi]) { likeHaptic(!item.liked); app.act { like(b.blockId, item.itemId, !item.liked) } }
                 }
             }
         }

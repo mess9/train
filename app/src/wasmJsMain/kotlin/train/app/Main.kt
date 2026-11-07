@@ -233,6 +233,13 @@ private fun Settings(app: AppState) {
             Gap(8.dp)
             LateTag(it)
         }
+        Gap(8.dp)
+        var haptics by remember { mutableStateOf(hapticsOn) }
+        CheckRow("Отклик на нажатия", "Короткий толчок на кнопках и оценках, у каждой оценки свой. Настройка этого телефона", haptics) {
+            haptics = !haptics
+            hapticsOn = haptics
+            if (haptics) haptic(Haptic.Normal)
+        }
 
         Section("Версия")
         Surface(Modifier.fillMaxWidth()) {

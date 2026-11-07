@@ -87,6 +87,7 @@ class ProfileResource(private val db: Db, private val user: CurrentUser) {
     @Transactional
     fun put(body: Profile): Profile {
         body.heightCm?.let { if (it !in 50.0..260.0) throw badRequest("heightCm — рост в сантиметрах, от 50 до 260") }
+        body.birthDate?.let { if (it.year !in 1900..2030) throw badRequest("birthDate — дата рождения, например 1989-05-09") }
         db.update("update app_user set profile = cast(? as jsonb) where id = ?", Json.of(Profile.serializer(), body), user.id)
         return body
     }

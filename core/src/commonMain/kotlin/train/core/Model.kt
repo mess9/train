@@ -1,5 +1,6 @@
 package train.core
 
+import kotlinx.datetime.LocalDate
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -68,6 +69,8 @@ data class Profile(
     val vibration: Boolean = false,
     /** Рост, см. В объём не входит (в нём нет расстояния), агент видит его рядом с весом тела. */
     val heightCm: Double? = null,
+    /** Дата рождения: возраст для процента жира по складкам ([bodyFatJp3]). */
+    val birthDate: LocalDate? = null,
 )
 
 /**

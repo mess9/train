@@ -321,6 +321,9 @@ class AppState(private val scope: CoroutineScope) {
     /** Рост, см: агент видит его рядом с весом тела. `null` — стереть. */
     fun setHeight(cm: Double?) = updateProfile { it.copy(heightCm = cm) }
 
+    /** Дата рождения: возраст для процента жира по складкам. */
+    fun setBirthDate(date: LocalDate?) = updateProfile { it.copy(birthDate = date) }
+
     /**
      * Поменять профиль: сразу на экране, потом на сервере. Профиль меняется целиком, поэтому
      * сначала свежая его версия — имя и оборудование из `gym profile` не затираются. Сервер не

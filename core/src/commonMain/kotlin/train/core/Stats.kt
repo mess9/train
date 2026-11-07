@@ -156,7 +156,7 @@ fun stats(
 
     val volume = inRange.keys.sumOf { w ->
         val bw = bodyweightFor(w, measurements)
-        byWorkout[w.id].orEmpty().filter { it.recordType.usesReps }.sumOf { it.volume(exercises[it.exerciseId], bw) ?: 0.0 }
+        byWorkout[w.id].orEmpty().filter { it.hasVolume(exercises[it.exerciseId]) }.sumOf { it.volume(exercises[it.exerciseId], bw) ?: 0.0 }
     }
 
     return Stats(

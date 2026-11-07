@@ -1,5 +1,6 @@
 package train.app
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -26,18 +27,29 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
+import kotlin.uuid.Uuid
 import train.core.BlockPasses
 import train.core.BlockRole
 import train.core.Exercise
@@ -66,11 +78,6 @@ import train.core.replace
 import train.core.restTimer
 import train.core.setRecordType
 import train.core.values
-import kotlin.time.Clock
-import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.seconds
-import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
 private sealed interface WSheet {
     data object Tools : WSheet
@@ -291,15 +298,27 @@ private fun rate(app: AppState, b: LayoutBlock, item: LayoutItem, row: SetRow, r
     when {
         !row.done -> {
             app.justRated = item.id to row.setNo
-            val s = app.session ?: return
-            val block = s.block(b.id) ?: return
-            app.rest = BlockPasses(block, s.sets).restTimer(item, row.setNo, now)
+            val s = app.session ?: return haptic(r.haptic())
+            val block = s.block(b.id) ?: return haptic(r.haptic())
+            val bp = BlockPasses(block, s.sets)
+            // Закрыл проход круга или всё упражнение — толчок «готово», иначе — толчок оценки
+            val closed = (bp.circuit && bp.passClosed(row.setNo)) || bp.next(item) == null
+            haptic(if (closed) Haptic.Pass else r.haptic())
+            app.rest = bp.restTimer(item, row.setNo, now)
         }
         row.fact?.rating == r -> {
+            haptic(Haptic.Undo)
             app.rest = null
             if (app.justRated == item.id to row.setNo) app.justRated = null
         }
+        else -> haptic(r.haptic())
     }
+}
+
+private fun Rating.haptic() = when (this) {
+    Rating.EASY -> Haptic.Easy
+    Rating.NORMAL -> Haptic.Normal
+    Rating.HARD -> Haptic.Hard
 }
 
 /**
@@ -340,7 +359,7 @@ private fun ExerciseCard(
         Column {
             Row(Modifier.padding(start = 6.dp, top = 6.dp, bottom = 6.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Thumb(app, ex, tint, 40.dp, Modifier.clip(RoundedCornerShape(8.dp)).tap { app.go(Screen.Technique(item.exerciseId)) }, grey = grey)
-                Column(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).tapQuiet(onToggle).padding(vertical = 2.dp)) {
+                Column(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).tapQuiet { haptic(Haptic.Tick); onToggle() }.padding(vertical = 2.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Txt(ex?.nameRu ?: "Упражнение не в справочнике", ts(15.sp, if (grey) C.Done else C.Text, FontWeight.SemiBold), Modifier.weight(1f, fill = false), maxLines = 1)
                         if (item.liked) Ico(Icon.Heart, 14.dp, C.Heart, 1.5f, fill = true)
@@ -593,12 +612,40 @@ private fun ToolsSheet(app: AppState, now: Instant) {
             Btn("+15 с", { app.tools = t.timerShift(15, Clock.System.now()) }, kind = Kind.Ghost)
         }
     } else {
-        val ms = t.stopwatchMs(now)
-        Txt(mmss(ms.milliseconds), big, Modifier.fillMaxWidth().padding(vertical = 6.dp), TextAlign.Center)
+        // Пока идёт — каждый кадр: маятник плавный, цифра меняется на крайней точке маха
+        var frame by remember { mutableStateOf(now) }
+        if (t.swStart != null) LaunchedEffect(t.swStart) { while (true) withFrameMillis { frame = Clock.System.now() } }
+        val ms = t.stopwatchMs(maxOf(frame, now))
+        Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
+            Pendulum(ms, Modifier.size(84.dp, 80.dp))
+            Txt(mmss(ms.milliseconds), big)
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
             Btn("Сброс", { app.tools = t.stopwatchReset() }, kind = Kind.Ghost)
             Btn(if (t.swStart != null) "Стоп" else "Старт", { app.tools = t.stopwatchToggle(Clock.System.now()) }, Modifier.widthIn(min = 140.dp))
         }
+    }
+}
+
+/**
+ * Маятник у секундомера: мах — секунда, крайние точки — на смене цифры. На нуле отведён в
+ * сторону, как перед отпусканием.
+ */
+@Composable
+private fun Pendulum(ms: Long, modifier: Modifier) {
+    val rod = C.Muted
+    val rail = C.Border
+    val bob = C.Lime
+    Canvas(modifier) {
+        val a = (cos(PI * ms / 1000.0) * 0.6).toFloat()
+        val cx = size.width / 2
+        val top = 3.dp.toPx()
+        val r = 9.dp.toPx()
+        val len = size.height - top - r - 2.dp.toPx()
+        drawLine(rail, Offset(cx - 14.dp.toPx(), top), Offset(cx + 14.dp.toPx(), top), 4.dp.toPx(), StrokeCap.Round)
+        val end = Offset(cx + sin(a) * len, top + cos(a) * len)
+        drawLine(rod, Offset(cx, top), end, 2.5.dp.toPx(), StrokeCap.Round)
+        drawCircle(bob, r, end)
     }
 }
 
@@ -626,7 +673,7 @@ private fun MenuSheet(
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Txt(ex?.nameRu ?: "Упражнение", ts(17.sp, weight = FontWeight.Bold), Modifier.weight(1f))
         // Сердечко — сразу в шапке меню: одно касание, лист остаётся открытым
-        IconBtn(Icon.Heart, { app.act { like(b.id, item.id, !item.liked) } }, 40.dp, if (item.liked) C.Heart else C.Muted, fill = item.liked,
+        IconBtn(Icon.Heart, { likeHaptic(!item.liked); app.act { like(b.id, item.id, !item.liked) } }, 40.dp, if (item.liked) C.Heart else C.Muted, fill = item.liked,
             label = if (item.liked) "Убрать сердечко" else "Поставить сердечко")
     }
     Column {
@@ -636,7 +683,7 @@ private fun MenuSheet(
                 onClose(null)
             }
         }
-        MenuItem(if (item.liked) "Убрать сердечко" else "Очень понравилось") { app.act { like(b.id, item.id, !item.liked) } }
+        MenuItem(if (item.liked) "Убрать сердечко" else "Очень понравилось") { likeHaptic(!item.liked); app.act { like(b.id, item.id, !item.liked) } }
         MenuItem(if (item.comment == null) "Заметка к упражнению…" else "Изменить заметку…") { onClose(WSheet.Comment(b.id, item.id)) }
         MenuItem("Техника и мышцы") {
             onClose(null)

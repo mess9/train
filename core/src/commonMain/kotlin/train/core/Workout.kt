@@ -166,6 +166,17 @@ fun SetFact.volume(exercise: Exercise?, bodyweight: Double?): Double? {
     return (external + body) * r * sides
 }
 
+/**
+ * У подхода бывает объём: повторы с весом снаряда, с доп. весом или с долей веса тела. Повторы без
+ * веса и без доли (скакалка, скручивания) объёма не имеют, как подходы на время: их нет ни в
+ * объёме, ни в неизвестных.
+ */
+fun SetFact.hasVolume(exercise: Exercise?): Boolean = when (recordType) {
+    RecordType.WEIGHT_REPS -> true
+    RecordType.REPS -> (extraWeight ?: 0.0) > 0.0 || exercise?.bodyweightFactor != null
+    RecordType.TIME, RecordType.WEIGHT_TIME -> false
+}
+
 /** Время подхода под нагрузкой, с; «на сторону» — на обе. */
 val SetFact.timeUnderLoad: Int? get() = if (recordType.usesSeconds) seconds?.let { it * sides } else null
 

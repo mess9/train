@@ -69,7 +69,10 @@ data class Totals(
     val workSets: Int,
     /** Объём сделанных подходов, где он известен, кг; с долей собственного веса. */
     val volumeKg: Double,
-    /** Подходы на повторы, у которых объём неизвестен: в `volumeKg` их нет. */
+    /**
+     * Подходы, у которых объём есть ([hasVolume]), но неизвестен — нет взвешивания, веса или повторов:
+     * в `volumeKg` их нет.
+     */
     val volumeUnknownSets: Int,
     /** Сумма подходов на время. */
     val timeUnderLoadSec: Int,
@@ -151,7 +154,7 @@ fun compare(
     val all = blocks.flatMap { it.items }.flatMap { it.sets }
     val end = workout.finishedAt ?: done.mapNotNull { it.doneAt }.maxOrNull()
     val duration = end?.let { (it - workout.startedAt).inWholeSeconds }
-    val volumes = done.filter { it.recordType.usesReps }.map { it.volume(exercises[it.exerciseId], bodyweight) }
+    val volumes = done.filter { it.hasVolume(exercises[it.exerciseId]) }.map { it.volume(exercises[it.exerciseId], bodyweight) }
     val volume = volumes.sumOf { it ?: 0.0 }
     val mainBlocks = workout.layout.blocks.filter { it.role == BlockRole.MAIN }.map { it.id }.toSet()
 

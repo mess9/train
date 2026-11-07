@@ -1,9 +1,27 @@
 package train.app
 
+import androidx.compose.animation.core.animate
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -217,7 +235,11 @@ fun Ico(icon: Icon, size: Dp = 22.dp, color: Color = C.Soft, stroke: Float = 2f,
 
 // Кнопки и поверхности
 
-fun Modifier.tap(onClick: () -> Unit) = clickable(onClick = onClick)
+/** Нажатие с лёгким толчком ([Haptic.Tick]); свой отклик — вызвать [haptic] в `onClick`, он перебьёт этот. */
+fun Modifier.tap(onClick: () -> Unit) = clickable {
+    haptic(Haptic.Tick)
+    onClick()
+}
 
 /** Нажатие без подсветки — для фона листа. */
 @Composable
@@ -321,8 +343,27 @@ fun IconBtn(icon: Icon, onClick: () -> Unit, size: Dp = 44.dp, color: Color = C.
 }
 
 /**
+ * Ввод поверх значения: в фокусе поле выглядит пустым, прежнее значение — подсказкой. Первая
+ * цифра начинает число заново, а не дописывается к предзаполненному. Ушёл, ничего не набрав, —
+ * значение прежнее: само поле ничего не стирает.
+ */
+private class Fresh {
+    var focused by mutableStateOf(false)
+    var typed by mutableStateOf(false)
+
+    /** Поле показывает пустоту поверх значения. */
+    val blank get() = focused && !typed
+
+    fun focus(on: Boolean) {
+        if (on && !focused) haptic(Haptic.Field)
+        focused = on
+        typed = false
+    }
+}
+
+/**
  * Поле для чисел: цифровая клавиатура (`Decimal`), лишние символы отбрасываются при вводе.
- * Запятая — как точка.
+ * Запятая — как точка. Ввод поверх значения — [Fresh].
  */
 @Composable
 fun NumField(
@@ -337,15 +378,25 @@ fun NumField(
     /** Единица мелко под числом: «кг», «повт» — колонка понятна без шапки. */
     unit: String? = null,
 ) {
+    val fresh = remember { Fresh() }
+    val shown = if (fresh.blank) "" else value
     BasicTextField(
-        value = value,
-        onValueChange = { s -> filterNumber(s, decimal)?.let(onChange) },
+        value = shown,
+        onValueChange = { s ->
+            if (s == shown) return@BasicTextField
+            filterNumber(s, decimal)?.let {
+                fresh.typed = true
+                onChange(it)
+            }
+        },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = if (decimal) KeyboardType.Decimal else KeyboardType.Number),
         textStyle = style.copy(textAlign = align),
         cursorBrush = SolidColor(C.Lime),
-        modifier = modifier,
-        decorationBox = { inner -> FieldBox(value.isEmpty(), placeholder, style, align, bg, unit, inner) },
+        modifier = modifier.onFocusChanged { fresh.focus(it.isFocused) },
+        decorationBox = { inner ->
+            FieldBox(shown.isEmpty(), if (fresh.blank && value.isNotEmpty()) value else placeholder, style, align, bg, unit, inner)
+        },
     )
 }
 
@@ -366,14 +417,18 @@ fun TimeField(
     var digits by remember(id) { mutableStateOf(seconds?.let(TimeInput::digitsOf).orEmpty()) }
     // Значение поменялось не из поля (другая строка, сервер) — показать его
     LaunchedEffect(seconds) { if (TimeInput.seconds(digits) != seconds) digits = seconds?.let(TimeInput::digitsOf).orEmpty() }
-    val text = TimeInput.text(digits)
+    val fresh = remember { Fresh() }
+    val full = TimeInput.text(digits)
+    // Ввод поверх значения ([Fresh]): первая цифра — новое время с нуля, а не дописка справа
+    val text = if (fresh.blank) "" else full
     BasicTextField(
         value = TextFieldValue(text, TextRange(text.length)),
         onValueChange = { v ->
             if (v.text == text) return@BasicTextField
             // Пятая цифра не принимается, как на микроволновке
             val d = TimeInput.digits(v.text)
-            if (d == digits) return@BasicTextField
+            if (d == digits && !fresh.blank) return@BasicTextField
+            fresh.typed = true
             digits = d
             onSeconds(TimeInput.seconds(d))
         },
@@ -381,8 +436,10 @@ fun TimeField(
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         textStyle = style.copy(textAlign = TextAlign.Center),
         cursorBrush = SolidColor(C.Lime),
-        modifier = modifier,
-        decorationBox = { inner -> FieldBox(text.isEmpty(), "м:сс", style, TextAlign.Center, bg, unit, inner) },
+        modifier = modifier.onFocusChanged { fresh.focus(it.isFocused) },
+        decorationBox = { inner ->
+            FieldBox(text.isEmpty(), if (fresh.blank && full.isNotEmpty()) full else "м:сс", style, TextAlign.Center, bg, unit, inner)
+        },
     )
 }
 
@@ -439,20 +496,82 @@ fun TextArea(value: String, onChange: (String) -> Unit, placeholder: String, mod
     )
 }
 
-/** Нижний лист поверх экрана: тап по фону закрывает. */
+/**
+ * Нижний лист поверх экрана: закрывает тап по фону или смахивание вниз — за ручку или за
+ * содержимое, когда оно прокручено до верха. Недотянул — лист возвращается на место.
+ */
 @Composable
 fun Sheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    val scope = rememberCoroutineScope()
+    var drag by remember { mutableFloatStateOf(0f) }
+    var height by remember { mutableIntStateOf(0) }
+    var closing by remember { mutableStateOf(false) }
+
+    fun settle(velocity: Float) {
+        // Дальше трети высоты или резкий взмах вниз — закрыть, иначе вернуть
+        val close = drag > height / 3f || (velocity > 1200f && drag > 0f)
+        if (close) closing = true
+        scope.launch {
+            animate(drag, if (close) height.toFloat() else 0f, initialVelocity = velocity) { v, _ -> drag = v }
+            if (close) onDismiss()
+        }
+    }
+
+    val swipe = remember {
+        object : NestedScrollConnection {
+            // Лист уже сдвинут, палец пошёл вверх — сперва поднять лист, потом прокручивать
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (closing || available.y >= 0f || drag <= 0f) return Offset.Zero
+                val used = maxOf(available.y, -drag)
+                drag += used
+                return Offset(0f, used)
+            }
+
+            // Прокрутка упёрлась в верх, палец тянет вниз — лист едет за ним
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (closing || available.y <= 0f || source != NestedScrollSource.UserInput) return Offset.Zero
+                drag += available.y
+                return Offset(0f, available.y)
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (closing || drag <= 0f) return Velocity.Zero
+                settle(available.y)
+                return available
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (!closing && drag > 0f) settle(0f)
+                return Velocity.Zero
+            }
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().background(Color(0x8C000000)).tapQuiet(onDismiss))
+        val shade = if (height > 0) 1f - (drag / height).coerceIn(0f, 1f) else 1f
+        Box(Modifier.fillMaxSize().alpha(shade).background(Color(0x8C000000)).tapQuiet(onDismiss))
         Column(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .onSizeChanged { height = it.height }
+                .offset { IntOffset(0, drag.roundToInt()) }
+                .nestedScroll(swipe)
                 .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)).background(C.Card)
                 .tapQuiet {} // тап по листу не закрывает его
                 .verticalScroll(rememberScrollState())
-                .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 22.dp),
+                .padding(start = 16.dp, end = 16.dp, bottom = 22.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Box(Modifier.align(Alignment.CenterHorizontally).width(40.dp).height(4.dp).clip(CircleShape).background(C.Dash))
+            // Ручка: за неё тянется всегда, даже когда содержимое прокручено
+            Box(
+                Modifier.fillMaxWidth().height(22.dp).draggable(
+                    rememberDraggableState { d -> if (!closing) drag = (drag + d).coerceAtLeast(0f) },
+                    Orientation.Vertical,
+                    onDragStopped = { v -> if (!closing) settle(v) },
+                ),
+                contentAlignment = Alignment.BottomCenter,
+            ) {
+                Box(Modifier.width(40.dp).height(4.dp).clip(CircleShape).background(C.Dash))
+            }
             content()
         }
     }

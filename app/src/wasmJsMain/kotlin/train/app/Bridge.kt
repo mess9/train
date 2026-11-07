@@ -14,6 +14,47 @@ fun wake(on: Boolean): Unit = js("window.bridge.wake(on)")
 
 fun buzz(): Unit = js("navigator.vibrate && navigator.vibrate([200, 100, 200])")
 
+private fun vibrate(a: Int, pause: Int, b: Int): Unit =
+    js("navigator.vibrate && navigator.vibrate(b > 0 ? [a, pause, b] : a)")
+
+/**
+ * Отклик на нажатие: толчок, мс — `on`, `pause`, второй `on2` (0 — одиночный). У разных мест чуть
+ * разный, чтобы на ощупь отличать «нажал кнопку» от «отметил подход». Новый толчок перебивает
+ * идущий. iPhone браузер не вибрирует.
+ */
+enum class Haptic(val on: Int, val pause: Int = 0, val on2: Int = 0) {
+    /** Кнопка, пункт меню, вкладка. */
+    Tick(8),
+
+    /** Фокус в поле ввода. */
+    Field(5),
+
+    /** Оценки: лёгко — короткий, норма — дольше, тяжело — двойной. */
+    Easy(12),
+    Normal(24),
+    Hard(18, 50, 18),
+
+    /** Сердечко. */
+    Like(10, 40, 22),
+
+    /** Снята отметка подхода. */
+    Undo(6, 30, 6),
+
+    /** Закрыт проход круга или всё упражнение. */
+    Pass(14, 60, 34),
+}
+
+/** Отклик на нажатия включён на этом телефоне (`localStorage`, по умолчанию да). */
+var hapticsOn: Boolean = localStorage.getItem("haptics") != "off"
+    set(value) {
+        field = value
+        localStorage.setItem("haptics", if (value) "on" else "off")
+    }
+
+fun haptic(h: Haptic) {
+    if (hapticsOn) runCatching { vibrate(h.on, h.pause, h.on2) }
+}
+
 /** Короткий сигнал через Web Audio. Звук разблокирован первым касанием (index.html). */
 fun beep(): Unit = js("window.bridge.beep()")
 
@@ -67,3 +108,6 @@ object LocalStorage : Storage {
 
     override fun remove(key: String) = localStorage.removeItem(key)
 }
+
+/** Поставил сердечко — свой толчок, снял — обычный. */
+fun likeHaptic(on: Boolean) = haptic(if (on) Haptic.Like else Haptic.Tick)

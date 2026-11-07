@@ -46,6 +46,18 @@ class VolumeTest {
     }
 
     @Test
+    fun whoHasVolume() {
+        val crunch = exercise("Скручивания", type = RecordType.REPS)
+        val pushUp = exercise("Отжимания", type = RecordType.REPS, bodyweightFactor = 0.65)
+        // Повторы без веса и без доли — объёма нет вовсе, не «неизвестен»
+        assertEquals(false, set(RecordType.REPS, reps = 20).hasVolume(crunch))
+        assertEquals(true, set(RecordType.REPS, reps = 20, extra = 5.0).hasVolume(crunch))
+        assertEquals(true, set(RecordType.REPS, reps = 20).hasVolume(pushUp))
+        assertEquals(true, set(RecordType.WEIGHT_REPS, reps = 10).hasVolume(exercise("Тяга")))
+        assertEquals(false, set(RecordType.WEIGHT_TIME, weight = 20.0, seconds = 40).hasVolume(exercise("Фермер")))
+    }
+
+    @Test
     fun timeUnderLoad() {
         assertEquals(60, set(RecordType.TIME, seconds = 60).timeUnderLoad)
         assertEquals(60, set(RecordType.TIME, seconds = 30, perSide = true).timeUnderLoad)
