@@ -40,6 +40,9 @@ skill `gym` (`skills/gym/SKILL.md`; `~/.claude/skills/gym` — ссылка на
 - Тесты: `./gradlew :core:jvmTest :client:jvmTest :cli:test`, сервер — `:server:test --tests …`,
   приложение — `:app:compileKotlinWasmJs`. Итог читать по `BUILD`/`^e:` или по XML в
   `*/build/test-results`: с `-q` вывод пустой и при успехе, и без прогона.
+- **В Jenkins только core, client, cli** — внутри `docker build --target test`. `server:test`
+  там не идёт (нужен Docker в Docker): серверные тесты — локально, перед пушем. Коммит без
+  файлов из `COPY` в `Dockerfile` (доки, `skills/`, `docs/`) берёт сборку и тесты из кэша слоёв.
 - Превью: `preview_start` `server` (порт 7313, ключ `dev-key`). База каждый запуск пустая —
   упражнения и план заводить через API. JSON с кириллицей — в файл и `curl --data @file`:
   из аргументов Git Bash кириллица приходит битой.
@@ -51,6 +54,9 @@ skill `gym` (`skills/gym/SKILL.md`; `~/.claude/skills/gym` — ссылка на
   `[...document.querySelectorAll('div')].find(d => d.shadowRoot).shadowRoot.querySelector('canvas')`,
   в него `PointerEvent` `pointerdown`/`pointermove`/`pointerup` (`pointerType: 'touch'`).
   Долгое нажатие — пауза ≥ 700 мс между `down` и первым `move`.
+- Скрытая панель превью рисует ~3 кадра/с (на телефоне 60): рывок «на один кадр» в ней не
+  виден. Сдвиг, который должен встать в кадр вместе со сменой раскладки, — в обычном состоянии
+  синхронно, а не в `scope.launch { animatable.snapTo }`: корутина приходит кадром позже.
 
 ## Соглашения
 

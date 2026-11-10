@@ -26,7 +26,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.zIndex
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 
 /**
@@ -50,9 +49,24 @@ fun <T> ReorderColumn(
     var dragged by remember { mutableStateOf<Any?>(null) }
     var offset by remember { mutableFloatStateOf(0f) }
     val heights = remember { mutableStateMapOf<Any, Int>() }
-    // Сдвиг соседей после обмена: стартует с прежнего места и доезжает до нового
+    // Сдвиг карточки после обмена или броска: стартует с прежнего места и доезжает до нового
     val shifts = remember { HashMap<Any, Animatable<Float, AnimationVector1D>>() }
     fun shift(k: Any) = shifts.getOrPut(k) { Animatable(0f) }
+    // Часть сдвига, которую анимация ещё не забрала. Место в раскладке меняется в том же кадре, что
+    // и порядок, а корутина с анимацией — позже, и snapTo ещё ждёт отмены прежней анимации. Без этой
+    // части сосед на кадр вставал на новое место без сдвига, и список дёргался при каждом обмене
+    val pending = remember { mutableStateMapOf<Any, Float>() }
+    fun shown(k: Any) = shift(k).value + (pending[k] ?: 0f)
+    fun push(k: Any, by: Float) {
+        pending[k] = (pending[k] ?: 0f) + by
+        scope.launch {
+            val p = pending[k] ?: 0f
+            val a = shift(k)
+            a.snapTo(a.value + p)
+            pending[k] = (pending[k] ?: 0f) - p
+            a.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+        }
+    }
     val move by rememberUpdatedState(onMove)
 
     /** Отпустили: карточка доезжает до своего места, порядок уходит наверх, если поменялся. */
@@ -60,13 +74,7 @@ fun <T> ReorderColumn(
         if (dragged != k) return
         val from = items.indexOfFirst { key(it) == k }
         val to = order.indexOfFirst { key(it) == k }
-        val left = offset
-        val a = shift(k)
-        // Без диспетчера: сдвиг встаёт на место карточки в том же кадре, где она опускается
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            a.snapTo(left)
-            a.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
-        }
+        push(k, offset - shown(k))
         dragged = null
         offset = 0f
         if (from >= 0 && to >= 0 && from != to) move(from, to)
@@ -83,7 +91,7 @@ fun <T> ReorderColumn(
                         .zIndex(if (lifted) 1f else 0f)
                         .onSizeChanged { heights[k] = it.height }
                         .graphicsLayer {
-                            translationY = if (lifted) offset else shift(k).value
+                            translationY = if (lifted) offset else shown(k)
                             scaleX = scale
                             scaleY = scale
                         }
@@ -112,11 +120,7 @@ fun <T> ReorderColumn(
                                         order = order.toMutableList().also { it[i] = other; it[j] = item }
                                         // Карточка встала на новое место — держим её под пальцем
                                         offset += if (down != null) -step else step
-                                        scope.launch {
-                                            val a = shift(ok)
-                                            a.snapTo(a.value + if (down != null) mine else -mine)
-                                            a.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
-                                        }
+                                        push(ok, if (down != null) mine else -mine)
                                         haptic(Haptic.Tick)
                                     },
                                     onDragEnd = { drop(k) },
