@@ -302,7 +302,9 @@ fun Surface(
 /** Экран со скроллом и полями по краям, как `.scroll` в макете. */
 @Composable
 fun Page(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 28.dp), content = content)
+    val sc = rememberScrollState()
+    androidx.compose.runtime.LaunchedEffect(sc) { androidx.compose.runtime.snapshotFlow { sc.value }.collect { dbg("scroll=$it max=${sc.maxValue} vp=${sc.viewportSize}") } }
+    Column(modifier.fillMaxSize().verticalScroll(sc).padding(start = 16.dp, end = 16.dp, bottom = 28.dp), content = content)
 }
 
 @Composable

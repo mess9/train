@@ -28,6 +28,24 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.launch
 
+fun dbg(s: String): Unit = js("""{
+  if (!window.__dbg) {
+    const p = document.createElement('pre');
+    Object.assign(p.style, { position: 'fixed', left: '0', right: '0', top: '0', margin: '0', padding: '4px', font: '11px monospace', color: '#0f0', background: 'rgba(0,0,0,.75)', pointerEvents: 'none', zIndex: 9, whiteSpace: 'pre-wrap' });
+    document.body.appendChild(p);
+    const lines = [];
+    window.__dbg = (m) => { const t = performance.now().toFixed(0) + ' ' + m; console.log(t); lines.push(t); p.textContent = lines.slice(-16).join('\n'); };
+    window.addEventListener('resize', () => window.__dbg('resize ' + innerWidth + 'x' + innerHeight));
+    if (window.visualViewport) {
+      visualViewport.addEventListener('resize', () => window.__dbg('vv resize h=' + visualViewport.height.toFixed(0) + ' top=' + visualViewport.offsetTop.toFixed(0)));
+      visualViewport.addEventListener('scroll', () => window.__dbg('vv scroll top=' + visualViewport.offsetTop.toFixed(0) + ' pageTop=' + visualViewport.pageTop.toFixed(0)));
+    }
+    window.addEventListener('scroll', () => window.__dbg('win scroll ' + scrollY), true);
+    window.addEventListener('pointercancel', () => window.__dbg('pointercancel'), true);
+  }
+  window.__dbg(s);
+}""")
+
 /**
  * Столбец, где элемент можно перетащить пальцем: подержать — карточка приподнимается, вести —
  * соседи уступают место, отпустить — [onMove] с прежним и новым местом. Пока не отпустил, порядок
@@ -100,6 +118,7 @@ fun <T> ReorderColumn(
                             else Modifier.pointerInput(k, items) {
                                 detectDragGesturesAfterLongPress(
                                     onDragStart = {
+                                        dbg("START")
                                         haptic(Haptic.Tick)
                                         scope.launch { shift(k).snapTo(0f) }
                                         offset = 0f
@@ -122,10 +141,11 @@ fun <T> ReorderColumn(
                                         offset += if (down != null) -step else step
                                         push(ok, if (down != null) mine else -mine)
                                         haptic(Haptic.Tick)
+                                        dbg("SWAP")
                                     },
-                                    onDragEnd = { drop(k) },
+                                    onDragEnd = { dbg("END"); drop(k) },
                                     // Зовётся и при перезапуске жеста, когда список обновился: поднятой карточки тогда нет
-                                    onDragCancel = { drop(k) },
+                                    onDragCancel = { dbg("CANCEL"); drop(k) },
                                 )
                             },
                         ),
