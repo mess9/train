@@ -46,9 +46,7 @@ fun Root() {
     var keyboard by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
-            val kb = keyboardHeight()
-            if (kb != keyboard) dbg("keyboard=$kb")
-            keyboard = kb
+            keyboard = keyboardHeight()
             delay(120)
         }
     }

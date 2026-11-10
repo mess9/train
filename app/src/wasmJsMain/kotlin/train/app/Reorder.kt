@@ -5,7 +5,9 @@ import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,34 +24,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.zIndex
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-
-fun dbg(s: String): Unit = js("""{
-  if (!window.__dbg) {
-    const p = document.createElement('pre');
-    Object.assign(p.style, { position: 'fixed', left: '0', right: '0', top: '0', margin: '0', padding: '4px', font: '11px monospace', color: '#0f0', background: 'rgba(0,0,0,.75)', pointerEvents: 'none', zIndex: 9, whiteSpace: 'pre-wrap' });
-    document.body.appendChild(p);
-    const lines = [];
-    window.__dbg = (m) => { const t = performance.now().toFixed(0) + ' ' + m; console.log(t); lines.push(t); p.textContent = lines.slice(-4).join('\n'); };
-    window.addEventListener('resize', () => window.__dbg('resize ' + innerWidth + 'x' + innerHeight));
-    if (window.visualViewport) {
-      visualViewport.addEventListener('resize', () => window.__dbg('vv resize h=' + visualViewport.height.toFixed(0) + ' top=' + visualViewport.offsetTop.toFixed(0)));
-      visualViewport.addEventListener('scroll', () => window.__dbg('vv scroll top=' + visualViewport.offsetTop.toFixed(0) + ' pageTop=' + visualViewport.pageTop.toFixed(0)));
-    }
-    window.addEventListener('scroll', () => window.__dbg('win scroll ' + scrollY), true);
-    window.addEventListener('pointercancel', () => window.__dbg('pointercancel'), true);
-  }
-  window.__dbg(s);
-}""")
-
-fun dbgStack(): String = js("""(Error.stackTraceLimit = 80, new Error().stack || '').split('\n').slice(2)
-  .map(l => (l.match(/at (?:<[^>]*>\.)?([^ (]+)/) || [])[1] || '')
-  .filter(n => n && !/^kotlin\.|^kotlinx\.|Snapshot|snapshots|set-value|dbgStack|wasm-function|^new|invoke$/.test(n))
-  .map(n => n.replace(/^androidx\.compose\./, '').slice(-60)).slice(0, 22).join('\n')""")
 
 /**
  * Столбец, где элемент можно перетащить пальцем: подержать — карточка приподнимается, вести —
@@ -103,6 +84,25 @@ fun <T> ReorderColumn(
         if (from >= 0 && to >= 0 && from != to) move(from, to)
     }
 
+    /** Палец сдвинулся на [dy]: карточка за ним, на полпути к соседу — меняются местами. */
+    fun follow(item: T, k: Any, dy: Float) {
+        offset += dy
+        val i = order.indexOfFirst { key(it) == k }
+        val down = order.getOrNull(i + 1)?.takeIf { offset > 0 }
+        val up = order.getOrNull(i - 1)?.takeIf { offset < 0 }
+        val other = down ?: up ?: return
+        val ok = key(other)
+        val step = (heights[ok] ?: 0) + gap
+        val mine = (heights[k] ?: 0) + gap
+        if (kotlin.math.abs(offset) < step / 2) return
+        val j = if (down != null) i + 1 else i - 1
+        order = order.toMutableList().also { it[i] = other; it[j] = item }
+        // Карточка встала на новое место — держим её под пальцем
+        offset += if (down != null) -step else step
+        push(ok, if (down != null) mine else -mine)
+        haptic(Haptic.Tick)
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(spacing)) {
         order.forEach { item ->
             val k = key(item)
@@ -121,37 +121,34 @@ fun <T> ReorderColumn(
                         .then(
                             if (!enabled) Modifier
                             else Modifier.pointerInput(k, items) {
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = {
-                                        dbg("START")
-                                        haptic(Haptic.Tick)
-                                        scope.launch { shift(k).snapTo(0f) }
-                                        offset = 0f
-                                        dragged = k
-                                    },
-                                    onDrag = { change, amount ->
-                                        change.consume()
-                                        offset += amount.y
-                                        val i = order.indexOfFirst { key(it) == k }
-                                        val down = order.getOrNull(i + 1)?.takeIf { offset > 0 }
-                                        val up = order.getOrNull(i - 1)?.takeIf { offset < 0 }
-                                        val other = down ?: up ?: return@detectDragGesturesAfterLongPress
-                                        val ok = key(other)
-                                        val step = (heights[ok] ?: 0) + gap
-                                        val mine = (heights[k] ?: 0) + gap
-                                        if (kotlin.math.abs(offset) < step / 2) return@detectDragGesturesAfterLongPress
-                                        val j = if (down != null) i + 1 else i - 1
-                                        order = order.toMutableList().also { it[i] = other; it[j] = item }
-                                        // Карточка встала на новое место — держим её под пальцем
-                                        offset += if (down != null) -step else step
-                                        push(ok, if (down != null) mine else -mine)
-                                        haptic(Haptic.Tick)
-                                        dbg("SWAP")
-                                    },
-                                    onDragEnd = { dbg("END"); drop(k) },
-                                    // Зовётся и при перезапуске жеста, когда список обновился: поднятой карточки тогда нет
-                                    onDragCancel = { dbg("CANCEL"); drop(k) },
-                                )
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    val held = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
+                                    haptic(Haptic.Tick)
+                                    scope.launch { shift(k).snapTo(0f) }
+                                    offset = 0f
+                                    dragged = k
+                                    var id = held.id
+                                    try {
+                                        while (true) {
+                                            val e = awaitPointerEvent()
+                                            val c = e.changes.firstOrNull { it.id == id } ?: e.changes.firstOrNull { it.pressed }
+                                            val dy = c?.positionChange()?.y ?: 0f
+                                            // Поглощаем всё, даже касание без сдвига: на таком событии
+                                            // прокрутка страницы подхватывает жест и сразу едет на весь
+                                            // путь пальца от первого касания
+                                            e.changes.forEach { it.consume() }
+                                            if (c == null || !c.pressed) break
+                                            id = c.id
+                                            if (dy != 0f) follow(item, k, dy)
+                                        }
+                                        drop(k)
+                                    } catch (x: CancellationException) {
+                                        // Жест оборвался — список обновился посреди перетаскивания: карточку на место
+                                        drop(k)
+                                        throw x
+                                    }
+                                }
                             },
                         ),
                 ) {

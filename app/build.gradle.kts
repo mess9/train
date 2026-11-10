@@ -27,8 +27,3 @@ kotlin {
         }
     }
 }
-
-// Отладка (временно): имена функций в оптимизированном wasm — читаемый стек на телефоне
-tasks.withType<org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenExec>().configureEach {
-    binaryenArgs.add("-g")
-}

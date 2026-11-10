@@ -10,8 +10,8 @@
   <title>Тренировки</title>
   <style>
     html, body { margin: 0; height: 100%; background: #0F1012; overflow: hidden; }
-    /* Жесты целиком у Compose: он сам листает по pointer-событиям. Его canvas разрешает браузеру
-       pan-x pan-y, и Chrome на Android, пока карточку тащат, сдвигал и пружинил всю страницу.
+    /* Жесты целиком у Compose: он сам листает по pointer-событиям, а браузер страницу не сдвигает,
+       не пружинит и не обновляет потягиванием. Canvas Compose разрешает браузеру pan-x pan-y;
        touch-action берётся пересечением с предками — запрет на body действует и на canvas */
     html, body { touch-action: none; overscroll-behavior: none; }
     .gif { position: fixed; pointer-events: none; object-fit: contain; background: #F2F2F0; border-radius: 12px; display: none; }
