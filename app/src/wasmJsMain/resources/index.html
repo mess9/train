@@ -10,6 +10,10 @@
   <title>Тренировки</title>
   <style>
     html, body { margin: 0; height: 100%; background: #0F1012; overflow: hidden; }
+    /* Жесты целиком у Compose: он сам листает по pointer-событиям. Его canvas разрешает браузеру
+       pan-x pan-y, и Chrome на Android, пока карточку тащат, сдвигал и пружинил всю страницу.
+       touch-action берётся пересечением с предками — запрет на body действует и на canvas */
+    html, body { touch-action: none; overscroll-behavior: none; }
     .gif { position: fixed; pointer-events: none; object-fit: contain; background: #F2F2F0; border-radius: 12px; display: none; }
   </style>
   <script>
@@ -211,6 +215,21 @@
       window.bridge.build = (src.match(/^app\.(\w+)\.js$/) || [])[1] || 'dev';
       s.src = src;
       document.body.appendChild(s);
+      // То же на самом canvas: у прокручиваемого предка браузер мог бы вернуть себе pan, и
+      // пересечения с body тогда не хватит. Compose ставит своё и меняет canvas уже после старта —
+      // следим за всем его shadow root
+      const lockCanvas = () => {
+        const host = [...document.body.querySelectorAll('div')].find(d => d.shadowRoot);
+        if (!host) return false;
+        const lock = () => host.shadowRoot.querySelectorAll('canvas').forEach(cv => {
+          if (cv.style.touchAction !== 'none') cv.style.touchAction = 'none';
+        });
+        lock();
+        new MutationObserver(lock).observe(host.shadowRoot, { subtree: true, childList: true, attributes: true, attributeFilter: ['style'] });
+        return true;
+      };
+      const waitHost = new MutationObserver(() => { if (lockCanvas()) waitHost.disconnect(); });
+      waitHost.observe(document.body, { subtree: true, childList: true });
     })();
   </script>
 </head>
