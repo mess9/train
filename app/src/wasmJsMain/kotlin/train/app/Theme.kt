@@ -303,7 +303,15 @@ fun Surface(
 @Composable
 fun Page(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     val sc = rememberScrollState()
-    androidx.compose.runtime.LaunchedEffect(sc) { androidx.compose.runtime.snapshotFlow { sc.value }.collect { dbg("scroll=$it max=${sc.maxValue} vp=${sc.viewportSize}") } }
+    androidx.compose.runtime.DisposableEffect(sc) {
+        var last = sc.value
+        val h = androidx.compose.runtime.snapshots.Snapshot.registerGlobalWriteObserver {
+            val v = sc.value
+            if (kotlin.math.abs(v - last) > 40) dbg("JUMP $last->$v max=${sc.maxValue}\n" + dbgStack())
+            last = v
+        }
+        onDispose { h.dispose() }
+    }
     Column(modifier.fillMaxSize().verticalScroll(sc).padding(start = 16.dp, end = 16.dp, bottom = 28.dp), content = content)
 }
 

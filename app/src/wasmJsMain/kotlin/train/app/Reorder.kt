@@ -34,7 +34,7 @@ fun dbg(s: String): Unit = js("""{
     Object.assign(p.style, { position: 'fixed', left: '0', right: '0', top: '0', margin: '0', padding: '4px', font: '11px monospace', color: '#0f0', background: 'rgba(0,0,0,.75)', pointerEvents: 'none', zIndex: 9, whiteSpace: 'pre-wrap' });
     document.body.appendChild(p);
     const lines = [];
-    window.__dbg = (m) => { const t = performance.now().toFixed(0) + ' ' + m; console.log(t); lines.push(t); p.textContent = lines.slice(-16).join('\n'); };
+    window.__dbg = (m) => { const t = performance.now().toFixed(0) + ' ' + m; console.log(t); lines.push(t); p.textContent = lines.slice(-4).join('\n'); };
     window.addEventListener('resize', () => window.__dbg('resize ' + innerWidth + 'x' + innerHeight));
     if (window.visualViewport) {
       visualViewport.addEventListener('resize', () => window.__dbg('vv resize h=' + visualViewport.height.toFixed(0) + ' top=' + visualViewport.offsetTop.toFixed(0)));
@@ -45,6 +45,11 @@ fun dbg(s: String): Unit = js("""{
   }
   window.__dbg(s);
 }""")
+
+fun dbgStack(): String = js("""(Error.stackTraceLimit = 80, new Error().stack || '').split('\n').slice(2)
+  .map(l => (l.match(/at (?:<[^>]*>\.)?([^ (]+)/) || [])[1] || '')
+  .filter(n => n && !/^kotlin\.|^kotlinx\.|Snapshot|snapshots|set-value|dbgStack|wasm-function|^new|invoke$/.test(n))
+  .map(n => n.replace(/^androidx\.compose\./, '').slice(-60)).slice(0, 22).join('\n')""")
 
 /**
  * Столбец, где элемент можно перетащить пальцем: подержать — карточка приподнимается, вести —
