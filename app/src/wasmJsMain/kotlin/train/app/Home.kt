@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -243,29 +244,34 @@ fun PlanView(app: AppState, id: Uuid) {
         }
         val layout = remember(p) { p.body.snapshot(app::exercise) }
         val tints = tints(layout.blocks.map { it.role })
+        // Порядок внутри блока меняется, пока план не начат: потом он заморожен
+        val active = app.session?.active
+        val movable = app.key != null && status != PlanStatus.STARTED && active?.planId != p.id
+        if (movable && layout.blocks.any { it.items.size > 1 }) {
+            Txt("Порядок в блоке — подержи карточку и перетащи", T.small, Modifier.padding(top = 10.dp))
+        }
+        app.planError?.let { Txt(it, ts(13.sp, C.Danger), Modifier.padding(top = 10.dp)) }
+        DisposableEffect(id) { onDispose { app.planError = null } }
         layout.blocks.forEachIndexed { i, b ->
             val passes = b.items.maxOfOrNull { it.sets.size } ?: 0
             val circuit = passes > 1 && b.items.size > 1
             val sub = if (circuit) "× $passes ${plural(passes, "проход", "прохода", "проходов")}" + (b.restAfterPassSec?.let { " · отдых $it с" } ?: "") else ""
             BlockDivider(blockTitle(b.role, b.title, i), sub, tints[i])
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                b.items.forEach { item ->
-                    val ex = app.exercise(item.exerciseId)
-                    Surface(Modifier.fillMaxWidth(), tints[i].card, tints[i].line, 12.dp) {
-                        Row(Modifier.padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Thumb(app, ex, tints[i], 40.dp)
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Txt(ex?.nameRu ?: "Упражнение не в справочнике", T.strong)
-                                Txt(planTarget(b, item, if (circuit) passes else 1), T.meta)
-                                item.note?.let { Txt(it, T.small) }
-                            }
+            ReorderColumn(b.items, { it.id }, 6.dp, movable && b.items.size > 1, { from, to -> app.movePlanItem(p.id, b.id, from, to) }) { item, lifted ->
+                val ex = app.exercise(item.exerciseId)
+                Surface(Modifier.fillMaxWidth(), tints[i].card, if (lifted) tints[i].tint else tints[i].line, 12.dp) {
+                    Row(Modifier.padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Thumb(app, ex, tints[i], 40.dp)
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Txt(ex?.nameRu ?: "Упражнение не в справочнике", T.strong)
+                            Txt(planTarget(b, item, if (circuit) passes else 1), T.meta)
+                            item.note?.let { Txt(it, T.small) }
                         }
                     }
                 }
             }
         }
         Spacer(Modifier.height(20.dp))
-        val active = app.session?.active
         when {
             active != null -> Btn(if (active.planId == p.id) "Вернуться к тренировке" else "Идёт другая тренировка — вернуться", { app.go(Screen.Workout) }, Modifier.fillMaxWidth(), big = true)
             status == PlanStatus.STARTED -> Txt("Тренировка по этому плану уже была", T.meta)

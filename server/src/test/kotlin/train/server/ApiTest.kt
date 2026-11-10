@@ -13,6 +13,7 @@ import train.core.Exercise
 import train.core.Me
 import train.core.Measurement
 import train.core.Plan
+import train.core.PlanPut
 import train.core.PlanStatus
 import train.core.Profile
 import train.core.Purged
@@ -181,6 +182,19 @@ class ApiTest {
         assertEquals(1, c.planVersion)
         assertEquals(2, c.totals.setsPlanned)
         assertEquals(40.0, c.blocks.single().items.single().sets.first().target?.weight)
+    }
+
+    @Test
+    fun phoneReorderDoesNotOverwriteAgentEdit() {
+        val api = newUser()
+        val bench = api.exercise()
+        val v1 = api.plan(bench)
+        val reorder = PlanPut(v1.date, v1.title, v1.body, baseVersion = 1)
+        assertEquals(2, api.put<_, Plan>("/api/plans/${v1.id}", reorder).version)
+
+        // Телефон держал версию 1, а план уже версии 2 — его правка не проходит
+        val stale = api.put<_, Plan>("/api/plans/${v1.id}", reorder, status = 409)
+        assertEquals(2, stale.version)
     }
 
     @Test

@@ -49,9 +49,24 @@ data class Block(
 @Serializable
 data class PlanBody(val blocks: List<Block>, val note: String? = null)
 
-/** Тело `PUT /plans/{id}`: создать или заменить план, сервер поднимет версию. */
+/**
+ * Переставить упражнение внутри блока: с места [from] на [to], остальные сдвигаются. Цели,
+ * ID и заметки не меняются. Неверные индексы — тело как было.
+ */
+fun PlanBody.moveItem(blockId: Uuid, from: Int, to: Int): PlanBody = copy(
+    blocks = blocks.map { b ->
+        if (b.id != blockId || from == to || from !in b.items.indices || to !in b.items.indices) b
+        else b.copy(items = b.items.toMutableList().apply { add(to, removeAt(from)) })
+    },
+)
+
+/**
+ * Тело `PUT /plans/{id}`: создать или заменить план, сервер поднимет версию.
+ * [baseVersion] — от какой версии сделана правка: на сервере уже другая — `409` с текущей,
+ * чужая правка не затирается. `null` — заменить как есть (агент).
+ */
 @Serializable
-data class PlanPut(val date: LocalDate, val title: String? = null, val body: PlanBody)
+data class PlanPut(val date: LocalDate, val title: String? = null, val body: PlanBody, val baseVersion: Int? = null)
 
 @Serializable
 enum class PlanStatus { PLANNED, OVERDUE, STARTED }

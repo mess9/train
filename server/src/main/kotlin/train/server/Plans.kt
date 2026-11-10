@@ -41,7 +41,8 @@ class PlanResource(
 
     /**
      * Создать или заменить план: каждая запись — новая неизменяемая версия. Начатый план не
-     * меняется — `409` с текущим состоянием. Запись из корзины возвращается.
+     * меняется — `409` с текущим состоянием. Запись из корзины возвращается. Правка с `baseVersion`
+     * (телефон переставил упражнения) поверх другой версии — тоже `409`: правку агента не затираем.
      * Тело — [PlanPut] строго: незнакомое поле — `400` с его путём, а не молча потерянная цель.
      */
     @PUT
@@ -56,6 +57,9 @@ class PlanResource(
         if (owner != null && owner != user.id) throw notFound()
         val old = if (owner != null) store.plan(user.id, planId) else null
         if (old?.startedAt != null) return RestResponse.status(Response.Status.CONFLICT, old)
+        if (body.baseVersion != null && body.baseVersion != (old?.version ?: 0)) {
+            return if (old != null) RestResponse.status(Response.Status.CONFLICT, old) else throw notFound()
+        }
 
         val version = (old?.version ?: 0) + 1
         if (old == null) {

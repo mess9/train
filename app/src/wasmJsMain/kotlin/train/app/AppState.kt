@@ -24,6 +24,7 @@ import kotlinx.serialization.Serializable
 import org.jetbrains.skia.Image
 import train.client.ApiClient
 import train.client.Link
+import train.client.PutResult
 import train.client.SendResult
 import train.client.linkOf
 import train.client.send
@@ -35,6 +36,7 @@ import train.core.LayoutBlock
 import train.core.Me
 import train.core.Measurement
 import train.core.Plan
+import train.core.PlanPut
 import train.core.Profile
 import train.core.RestTimer
 import train.core.Tools
@@ -48,6 +50,7 @@ import train.core.accepted
 import train.core.conflict
 import train.core.loadSession
 import train.core.measure
+import train.core.moveItem
 import train.core.newId
 import train.core.saveSession
 import train.core.snapshot
@@ -344,6 +347,66 @@ class AppState(private val scope: CoroutineScope) {
                 saveCache(cache.copy(profile = before))
                 profileError = "Не сохранилось: " + (linkText(linkOf(e)) ?: e.message ?: "ошибка сервера")
             }
+        }
+    }
+
+    /** Не сохранился новый порядок упражнений в плане — почему. Экран плана гасит при уходе. */
+    var planError by mutableStateOf<String?>(null)
+
+    /** Планы, чей порядок сейчас уходит на сервер, и их версия до правок телефона. */
+    private val planSaves = HashMap<Uuid, Plan>()
+
+    private fun putPlanCache(p: Plan) = saveCache(cache.copy(plans = cache.plans.map { if (it.id == p.id) p else it }))
+
+    /**
+     * Переставить упражнение в блоке плана: сразу на экране, потом новой версией на сервере.
+     * В кэше `version` — версия сервера, от неё и идёт правка. Перестановки подряд уходят по
+     * одной: пока ждём ответа, следующая копится в кэше и уходит поверх принятой версии.
+     */
+    fun movePlanItem(planId: Uuid, blockId: Uuid, from: Int, to: Int) {
+        val k = key ?: return
+        val plan = plan(planId) ?: return
+        val body = plan.body.moveItem(blockId, from, to)
+        if (body == plan.body) return
+        planError = null
+        putPlanCache(plan.copy(body = body))
+        if (planId in planSaves) return
+        planSaves[planId] = plan
+        scope.launch { savePlan(planId, k) }
+    }
+
+    /**
+     * Отправлять порядок, пока кэш не совпадёт с принятым. Агент успел поменять план — берём его
+     * версию, порядок не сохраняется. Нет связи — план возвращается к версии сервера.
+     */
+    private suspend fun savePlan(id: Uuid, k: String) {
+        try {
+            while (true) {
+                val p = plan(id) ?: return
+                val r = client(k).putPlan(id, PlanPut(p.date, p.title, p.body, baseVersion = p.version))
+                if (key != k) return
+                when (r) {
+                    is PutResult.Accepted -> {
+                        planSaves[id] = r.record
+                        val now = plan(id) ?: return
+                        if (now.body == r.record.body) return putPlanCache(r.record)
+                        // Пока шёл запрос, переставили ещё — та же правка поверх новой версии
+                        putPlanCache(r.record.copy(body = now.body))
+                    }
+                    is PutResult.Conflict -> {
+                        putPlanCache(r.current)
+                        planError = if (r.current.startedAt != null) "План уже начат — порядок не меняется"
+                        else "Агент успел поправить план — порядок не сохранён, вот новая версия"
+                        return
+                    }
+                }
+            }
+        } catch (e: Throwable) {
+            if (key != k) return
+            planSaves[id]?.let(::putPlanCache)
+            planError = "Порядок не сохранился: " + (linkText(linkOf(e)) ?: e.message ?: "ошибка сервера")
+        } finally {
+            planSaves.remove(id)
         }
     }
 
