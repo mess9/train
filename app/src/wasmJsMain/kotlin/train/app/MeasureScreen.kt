@@ -61,6 +61,11 @@ private val folds = listOf(
     Fold(FOLD_THIGH, "Бедро", "вертикально, середина спереди"),
 )
 
+/** Типы складок — для отметки «записано» на экране итога. */
+val foldTypes = folds.map { it.type }.toSet()
+
+fun foldLabel(type: String) = folds.firstOrNull { it.type == type }?.label ?: type
+
 /** Строка дня в «Раньше»: замеры и процент жира. */
 private val dayFields = mfields + listOf(MField(BODYFAT, "", "%", "Жир"), MField(BODYFAT_PHOTO, "", "%", "Жир по фото"))
 
@@ -236,7 +241,7 @@ private fun NewMeasurements(app: AppState, all: List<Measurement>) {
  * складками: агент видит и сырые миллиметры, и число. Оценку по фото пишет агент (`bodyfat_photo`).
  */
 @Composable
-private fun Folds(app: AppState, all: List<Measurement>) {
+fun Folds(app: AppState, all: List<Measurement>) {
     BirthDate(app)
     Gap(12.dp)
     var values by remember { mutableStateOf(folds.associate { it.type to "" }) }

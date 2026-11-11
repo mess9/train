@@ -13,6 +13,7 @@ import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.nullableFlag
+import com.github.ajalt.clikt.parameters.options.multiple
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.choice
@@ -207,12 +208,16 @@ class ExerciseAdd : ExerciseFields(
 class ExerciseEdit : ExerciseFields("edit", "Поправить упражнение — своё или, админу, общее: меняются только переданные поля") {
     private val id by argument().uuid()
     private val ru by option("--ru", help = "русское название")
+    private val steps by option("--step", help = "шаг техники; по опции на шаг, вместе заменяют прежние").multiple()
+    private val noSteps by option("--no-steps", help = "убрать шаги техники").flag()
+    private val source by option("--source", help = "id упражнения источника (exercise search): картинка, а без своих шагов — и шаги; \"\" — отвязать")
     override suspend fun exec() = out(
         api.patchExercise(
             id,
             ExercisePatch(
                 nameRu = ru, nameEn = en, recordType = type, implements = implements, perSide = perSide,
                 bodyweightFactor = bodyweightFactor, equipment = equipment, musclesPrimary = primary, musclesSecondary = secondary,
+                instructions = if (noSteps) emptyList() else steps.takeIf { it.isNotEmpty() }, sourceId = source,
             ),
         ),
     )

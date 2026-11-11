@@ -94,10 +94,13 @@ object C {
     val Dash = Color(0xFF3A3F46)
     val Lime = Color(0xFFC8F25A)
     val OnLime = Color(0xFF111111)
-    /** Оценки светофором: легко — зелёный, норм — жёлтый, тяжело — красный. */
-    val Easy = Color(0xFF5ACF7E)
-    val Normal = Color(0xFFF2C94C)
+    /** Оценки: легко — синий (можно больше), норм — зелёный, тяжело — красный. */
+    val Easy = Color(0xFF5AA9F2)
+    val Normal = Color(0xFF5ACF7E)
     val Hard = Color(0xFFFF6B6B)
+    /** Исход упражнения в итогах и истории: сделано — зелёный, частично или замена — жёлтый. */
+    val Good = Color(0xFF5ACF7E)
+    val Warn = Color(0xFFF2C94C)
     /** Удаление и «убрать»: красный, как «тяжело». */
     val Danger = Color(0xFFFF6B6B)
     val Heart = Color(0xFFFF5C8A)
@@ -140,16 +143,23 @@ fun Rating.color() = when (this) {
 }
 
 fun Rating.onColor() = when (this) {
-    Rating.EASY -> Color(0xFF0B2414)
-    Rating.NORMAL -> Color(0xFF2A2004)
+    Rating.EASY -> Color(0xFF0A1B2E)
+    Rating.NORMAL -> Color(0xFF0B2414)
     Rating.HARD -> Color(0xFF2E0B0B)
 }
 
 /** Невыбранная кнопка оценки: тёмный фон с оттенком её цвета. */
 fun Rating.dim() = when (this) {
-    Rating.EASY -> Color(0xFF17261C)
-    Rating.NORMAL -> Color(0xFF29251A)
+    Rating.EASY -> Color(0xFF16202B)
+    Rating.NORMAL -> Color(0xFF17261C)
     Rating.HARD -> Color(0xFF2C1A1A)
+}
+
+/** Пиктограмма кнопки оценки: ↑ — можно больше, ✓ — в самый раз, ✕ — через силу. */
+fun Rating.icon() = when (this) {
+    Rating.EASY -> Icon.ArrowUp
+    Rating.NORMAL -> Icon.Check
+    Rating.HARD -> Icon.Close
 }
 
 fun Rating.label() = when (this) {
@@ -207,6 +217,7 @@ enum class Icon(vararg val paths: String) {
     Swap("M7 7h12", "M16 4l3 3-3 3", "M17 17H5", "M8 14l-3 3 3 3"),
     Calendar("M4 6h16v14H4z", "M4 10h16", "M8 3.5v4", "M16 3.5v4"),
     Check("M5 12.5l4.5 4.5L19 7"),
+    ArrowUp("M12 19V5", "M6 11l6-6 6 6"),
     Close("M6 6l12 12", "M18 6L6 18"),
     Trash("M4.5 7h15", "M9.5 7V4.5h5V7", "M6.5 7l1 13h9l1-13", "M10 11v5", "M14 11v5"),
     Next("M9 6l6 6-6 6"),

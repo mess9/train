@@ -95,6 +95,7 @@ class ExerciseResource(
         val old = db.one("select * from exercise where id = ? and ${Store.VISIBLE} for update", exId, user.id) { it.exercise() }
             ?: throw notFound()
         if (old.shared) user.requireAdmin()
+        val src = body.sourceId?.takeIf { it.isNotBlank() }?.let { source[it] ?: throw badRequest("нет в источнике: $it") }
         val e = old.copy(
             nameRu = body.nameRu?.trim() ?: old.nameRu,
             nameEn = body.nameEn ?: old.nameEn,
@@ -105,16 +106,22 @@ class ExerciseResource(
             equipment = body.equipment ?: old.equipment,
             musclesPrimary = body.musclesPrimary ?: old.musclesPrimary,
             musclesSecondary = body.musclesSecondary ?: old.musclesSecondary,
+            sourceId = if (body.sourceId == null) old.sourceId else src?.info?.id,
+            mediaKey = if (body.sourceId == null) old.mediaKey else src?.info?.mediaKey,
+            instructions = body.instructions?.map { it.trim() }?.filter { it.isNotEmpty() }
+                ?: old.instructions.ifEmpty { src?.stepsRu.orEmpty() },
         )
         validate(e)
         db.update(
             """
             update exercise set name_ru = ?, name_en = ?, record_type = ?, implements = ?, per_side = ?, bodyweight_factor = ?,
-              equipment = ?, muscles_primary = cast(? as jsonb), muscles_secondary = cast(? as jsonb)
+              equipment = ?, muscles_primary = cast(? as jsonb), muscles_secondary = cast(? as jsonb),
+              source_id = ?, media_key = ?, instructions = cast(? as jsonb)
             where id = ?
             """.trimIndent(),
             e.nameRu, e.nameEn, e.recordType, e.implements, e.perSide, e.bodyweightFactor,
-            e.equipment, Json.of(strings, e.musclesPrimary), Json.of(strings, e.musclesSecondary), exId,
+            e.equipment, Json.of(strings, e.musclesPrimary), Json.of(strings, e.musclesSecondary),
+            e.sourceId, e.mediaKey, Json.of(strings, e.instructions), exId,
         )
         return e
     }

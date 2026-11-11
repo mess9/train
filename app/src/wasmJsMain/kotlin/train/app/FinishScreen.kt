@@ -84,8 +84,8 @@ fun ItemOutcome.icon() = when (this) {
 }
 
 fun ItemOutcome.color() = when (this) {
-    ItemOutcome.DONE, ItemOutcome.ADDED -> C.Easy
-    ItemOutcome.PARTIAL, ItemOutcome.REPLACED -> C.Normal
+    ItemOutcome.DONE, ItemOutcome.ADDED -> C.Good
+    ItemOutcome.PARTIAL, ItemOutcome.REPLACED -> C.Warn
     ItemOutcome.SKIPPED, ItemOutcome.REMOVED -> C.Faint
 }
 
@@ -188,6 +188,16 @@ fun Finish(app: AppState) {
 
         Section("Вес после тренировки")
         WorkoutWeight(app, w)
+
+        Section("Жир калипером")
+        // Складки нужны раз в 2–4 недели — по кнопке, чтобы не растягивать экран каждый раз
+        val folds = app.cache.measurements.filter { it.workoutId == w.id && !it.deleted && it.type in foldTypes }
+        var calipers by remember(w.id) { mutableStateOf(false) }
+        if (calipers) Folds(app, app.cache.measurements.filterNot { it.deleted })
+        else {
+            if (folds.isNotEmpty()) Txt("Записано: " + folds.joinToString(" · ") { "${foldLabel(it.type)} ${num(it.value)} мм" }, T.small, Modifier.padding(bottom = 8.dp))
+            Btn(if (folds.isEmpty()) "Замерить складки" else "Перемерить складки", { calipers = true }, Modifier.fillMaxWidth(), Kind.Ghost)
+        }
 
         Section("Фото")
         val photos = app.progress.photos.filter { it.workoutId == w.id }

@@ -507,7 +507,7 @@ private fun ValueField(id: String, value: Double?, decimal: Boolean, unit: Strin
 private fun SecondsField(id: String, value: Int?, onValue: (Int?) -> Unit) =
     TimeField(id, value, onValue, Modifier.size(CellW, 40.dp), fieldStyle, unit = "мин")
 
-/** Кнопка оценки: невыбранная — тёмная в оттенке своего цвета, выбранная — залита им. */
+/** Кнопка оценки пиктограммой: невыбранная — тёмная в оттенке своего цвета, выбранная — залита им. */
 @Composable
 private fun RowScope.RateBtn(r: Rating, on: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(10.dp)
@@ -518,7 +518,7 @@ private fun RowScope.RateBtn(r: Rating, on: Boolean, onClick: () -> Unit) {
             .tap(onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Txt(r.label(), ts(10.sp, if (on) r.onColor() else r.color(), FontWeight.SemiBold), align = TextAlign.Center, maxLines = 1)
+        Ico(r.icon(), 20.dp, if (on) r.onColor() else r.color(), stroke = 2.6f)
     }
 }
 

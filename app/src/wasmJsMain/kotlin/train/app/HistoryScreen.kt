@@ -202,12 +202,12 @@ private fun ExerciseCard(app: AppState, item: ItemComparison, tint: Tint) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Txt(item.name ?: ex?.nameRu ?: "Упражнение", ts(15.sp, if (grey) C.Muted else C.Text, FontWeight.SemiBold), maxLines = 2)
                     when (out) {
-                        ItemOutcome.ADDED -> IconText(Icon.Plus, "вне плана", C.Easy)
-                        ItemOutcome.REPLACED -> IconText(Icon.Swap, "вместо «${item.replacedFrom?.let { app.exercise(it)?.nameRu } ?: "?"}»", C.Normal)
+                        ItemOutcome.ADDED -> IconText(Icon.Plus, "вне плана", C.Good)
+                        ItemOutcome.REPLACED -> IconText(Icon.Swap, "вместо «${item.replacedFrom?.let { app.exercise(it)?.nameRu } ?: "?"}»", C.Warn)
                         ItemOutcome.REMOVED -> IconText(Icon.Close, "убрано из тренировки", C.Faint)
                         ItemOutcome.SKIPPED -> IconText(Icon.Skip, "пропущено", C.Faint)
-                        ItemOutcome.PARTIAL -> IconText(Icon.Check, "${item.sets.count { it.fact != null }} из ${item.sets.size} подходов", C.Normal)
-                        ItemOutcome.DONE -> IconText(Icon.Check, "${item.sets.size} ${plural(item.sets.size, "подход", "подхода", "подходов")}", C.Easy)
+                        ItemOutcome.PARTIAL -> IconText(Icon.Check, "${item.sets.count { it.fact != null }} из ${item.sets.size} подходов", C.Warn)
+                        ItemOutcome.DONE -> IconText(Icon.Check, "${item.sets.size} ${plural(item.sets.size, "подход", "подхода", "подходов")}", C.Good)
                     }
                 }
                 if (item.liked) Ico(Icon.Heart, 22.dp, C.Heart, fill = true)

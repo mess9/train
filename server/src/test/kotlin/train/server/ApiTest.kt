@@ -281,6 +281,31 @@ class ApiTest {
     }
 
     @Test
+    fun patchStepsAndSource() {
+        val api = newUser()
+        val own = api.post<_, Exercise>("/api/exercises", train.core.ExerciseCreate(nameRu = "Растяжка ${newId()}"))
+        assertNull(own.mediaKey)
+        fun patch(json: String) = api.spec().body(json).patch("/api/exercises/${own.id}").let { with(api) { it.decode<Exercise>(200, "patch") } }
+
+        // Шаги — свои, источник — ради картинки: свои шаги он не перетирает
+        val steps = patch("""{"instructions":["Встань прямо", " ", "Тянись 30 с"]}""")
+        assertEquals(listOf("Встань прямо", "Тянись 30 с"), steps.instructions)
+        val linked = patch("""{"sourceId":"0025"}""")
+        assertEquals("0025", linked.sourceId)
+        assertEquals("0025-EIeI8Vf", linked.mediaKey)
+        assertEquals(steps.instructions, linked.instructions)
+        assertEquals(linked, api.get<Exercise>("/api/exercises/${own.id}"))
+        assertEquals(400, api.spec().body("""{"sourceId":"9999"}""").patch("/api/exercises/${own.id}").statusCode)
+
+        // Отвязать — картинка уходит, шаги остаются; пустой список шагов — убрать
+        val unlinked = patch("""{"sourceId":""}""")
+        assertNull(unlinked.sourceId)
+        assertNull(unlinked.mediaKey)
+        assertEquals(steps.instructions, unlinked.instructions)
+        assertTrue(patch("""{"instructions":[]}""").instructions.isEmpty())
+    }
+
+    @Test
     fun profileAndTrash() {
         val api = newUser()
         assertEquals(Profile(), api.get<Profile>("/api/profile"))

@@ -171,6 +171,10 @@ CLI `gym`: пишешь планы, читаешь факт, решаешь, ч�
 - День в `--from`/`--to` у `workout list` — день по часам телефона (поле `date`), не UTC.
 - Справочник: общий (`shared: true`, ведёт админ) + свои упражнения. `exercise add` у админа
   кладёт в общий, `--own` — только себе; не админу `--shared` даёт 403, общее он не правит.
+  Упражнение без источника (растяжка, планка) в телефоне без картинки и шагов: шаги —
+  `gym exercise edit <id> --step "…" --step "…"`, картинка — `--source <id>` похожего
+  упражнения из `exercise search` (сначала посмотри картинку: `/media/<mediaKey>.jpg`).
+  Заводишь своё упражнение — сразу дай ему шаги.
 - Фото прогресса: `gym photo list [--from] [--to] [--workout]`, `gym photo add <файл> --at
   <YYYY-MM-DD|ISO> --pose front|side|back [--note] [--workout]` (задним числом — через `--at`),
   `gym photo get <id> --out <файл>`, `gym photo edit`, `gym photo rm` (в корзину), `gym photo

@@ -87,6 +87,13 @@ data class ExercisePatch(
     val equipment: String? = null,
     val musclesPrimary: List<String>? = null,
     val musclesSecondary: List<String>? = null,
+    /** Шаги техники; пустой список — убрать. */
+    val instructions: List<String>? = null,
+    /**
+     * Привязать к упражнению источника: из него берутся картинка и, если своих шагов нет и они
+     * не переданы, шаги. Пустая строка — отвязать (картинка уходит, шаги остаются).
+     */
+    val sourceId: String? = null,
 )
 
 /**

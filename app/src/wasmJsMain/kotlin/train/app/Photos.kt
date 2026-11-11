@@ -158,7 +158,7 @@ private fun DraftSheet(app: AppState, d: PhotoDraft) {
                 Btn(label, { pose = if (pose == v) null else v }, Modifier.weight(1f), if (pose == v) Kind.ChipOn else Kind.Chip)
             }
         }
-        p.uploadError?.let { Txt(it, ts(13.sp, if (p.waitingForNetwork) C.Normal else C.Danger)) }
+        p.uploadError?.let { Txt(it, ts(13.sp, if (p.waitingForNetwork) C.Warn else C.Danger)) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Btn("Не сохранять", p::discard, Modifier.weight(1f), Kind.Ghost, enabled = !p.uploading)
             Btn(
