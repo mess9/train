@@ -46,6 +46,9 @@ skill `gym` (`skills/gym/SKILL.md`; `~/.claude/skills/gym` — ссылка на
 - Превью: `preview_start` `server` (порт 7313, ключ `dev-key`). База каждый запуск пустая —
   упражнения и план заводить через API. JSON с кириллицей — в файл и `curl --data @file`:
   из аргументов Git Bash кириллица приходит битой.
+- Конфигурация `server` в `launch.json` собирает главную папку, не worktree. Из worktree —
+  своя временная запись (не коммитить): `cmd /c "set PORT=7314&& <worktree>\gradlew.bat -p
+  <worktree> :server:quarkusDev -Ddebug=false"` — порт и отладчик 5005 не спорят с главной.
 - Правка `app` при запущенном сервере — `./gradlew :server:appDist`, затем две перезагрузки
   страницы (service worker).
 - Приложение в превью открывать на `http://127.0.0.1:7313/#key=dev-key`: у `localhost` своё
