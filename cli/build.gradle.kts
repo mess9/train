@@ -12,6 +12,8 @@ dependencies {
     runtimeOnly(libs.slf4j.nop)
     // QR со ссылкой на ключ для телефона (`gym admin key --qr`)
     implementation(libs.qrcodegen)
+    // Аргументы на Windows — из GetCommandLineW: java.exe отдаёт main() их в cp1251 (WinArgs.kt)
+    implementation(libs.jna)
 
     testImplementation(kotlin("test"))
     testImplementation(libs.ktor.client.mock)

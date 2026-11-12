@@ -35,6 +35,9 @@ skillshare, так что правка в репо = правка skill).
 - Python в консоли: `PYTHONIOENCODING=utf-8`, иначе cp1251 падает на эмодзи из импорта.
   ID из `$(python …)` приходят с `\r` — цикл по ID вести внутри Python (`gym.bat` через
   `subprocess`).
+- `java.exe` на Windows отдаёт `main` аргументы в cp1251: ✓ × → ♥ стали бы `?` без ошибки. `gym`
+  берёт исходные через `GetCommandLineW` (`cli/.../WinArgs.kt`); не вышло — предупреждение в stderr
+  про каждый аргумент с «?». Видишь его — значки в тексте словами или через JSON-файл.
 - Фото с телефона (≈1126×2000) Read не открывает — уменьшить в scratchpad:
   `ImageOps.exif_transpose`, `thumbnail((800, 800))`.
 

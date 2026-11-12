@@ -121,4 +121,4 @@ fun gym(http: (() -> HttpClient)? = null): Gym = (http?.let(::Gym) ?: Gym()).sub
     ),
 )
 
-suspend fun main(args: Array<String>) = gym().main(args)
+suspend fun main(args: Array<String>) = gym().main(WinArgs.fix(args))
