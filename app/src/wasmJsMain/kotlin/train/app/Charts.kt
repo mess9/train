@@ -26,7 +26,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -86,9 +85,10 @@ fun BodyGroup.label() = when (this) {
 /** Подходы с дробью: вспомогательная мышца — полподхода. */
 fun sets(x: Double): String = if (x == x.roundToInt().toDouble()) x.roundToInt().toString() else num(x)
 
-// Схема тела: фигура 100 × 200, описана левая половина; `pair` — ещё и зеркально справа.
-// Сначала силуэт одним цветом без обводки — руки, ноги, торс сливаются в одну фигуру, — поверх
-// мышцы с тёмной обводкой: между соседними участками остаётся тонкий шов, а не дыра
+// Схема тела: фигура 100 × 200, описана левая половина; `pair` — ещё и зеркально справа. Это
+// схема, а не анатомический рисунок: контур и мышцы — многоугольники с острыми углами, круглые
+// только голова, кисти и стопы. Сначала силуэт одним цветом без обводки — руки, ноги, торс
+// сливаются в одну фигуру, — поверх мышцы с тёмной обводкой: между соседями тонкий шов, а не дыра
 
 private sealed interface Part {
     val region: BodyRegion?
@@ -107,33 +107,20 @@ private class Oval(val cx: Float, val cy: Float, val rx: Float, val ry: Float, o
     }
 }
 
-private class Bar(val l: Float, val t: Float, val r: Float, val b: Float, val rad: Float, override val region: BodyRegion? = null, override val pair: Boolean = false) : Part {
+private class Bar(val l: Float, val t: Float, val r: Float, val b: Float, override val region: BodyRegion? = null, override val pair: Boolean = false) : Part {
     private fun rect(mirror: Boolean) = if (mirror) Rect(100 - r, t, 100 - l, b) else Rect(l, t, r, b)
-    override fun path(mirror: Boolean) = Path().apply { addRoundRect(RoundRect(rect(mirror), CornerRadius(rad))) }
+    override fun path(mirror: Boolean) = Path().apply { addRect(rect(mirror)) }
     override fun contains(x: Float, y: Float, mirror: Boolean) = rect(mirror).contains(Offset(x, y))
 }
 
-/** Замкнутая гладкая кривая через точки (Catmull-Rom): мышца из пяти-восьми точек без углов. */
-private class Blob(vararg val xy: Float, override val region: BodyRegion? = null, override val pair: Boolean = true) : Part {
+private class Poly(vararg val xy: Float, override val region: BodyRegion? = null, override val pair: Boolean = true) : Part {
     private fun points(mirror: Boolean) = (xy.indices step 2).map { Offset(if (mirror) 100 - xy[it] else xy[it], xy[it + 1]) }
 
     override fun path(mirror: Boolean) = Path().apply {
-        val p = points(mirror)
-        val n = p.size
-        moveTo(p[0].x, p[0].y)
-        for (i in 0 until n) {
-            val p0 = p[(i - 1 + n) % n]
-            val p1 = p[i]
-            val p2 = p[(i + 1) % n]
-            val p3 = p[(i + 2) % n]
-            val c1 = p1 + (p2 - p0) / 6f
-            val c2 = p2 - (p3 - p1) / 6f
-            cubicTo(c1.x, c1.y, c2.x, c2.y, p2.x, p2.y)
-        }
+        points(mirror).forEachIndexed { i, o -> if (i == 0) moveTo(o.x, o.y) else lineTo(o.x, o.y) }
         close()
     }
 
-    /** По многоугольнику опорных точек: для попадания пальцем точнее не нужно. */
     override fun contains(x: Float, y: Float, mirror: Boolean): Boolean {
         val p = points(mirror)
         var inside = false
@@ -148,44 +135,44 @@ private class Blob(vararg val xy: Float, override val region: BodyRegion? = null
 
 private val silhouette = listOf(
     Oval(50f, 13.5f, 8.5f, 10f, pair = false),
-    Bar(45f, 20f, 55f, 32f, 2f),
+    Bar(45f, 20f, 55f, 32f),
     // Торс: от шеи по плечу, подмышка, талия, бедро, промежность
-    Blob(45.5f, 28f, 36f, 31f, 28f, 34f, 31f, 46f, 34f, 52f, 36.5f, 66f, 37f, 80f, 35f, 90f, 33f, 96f, 34f, 100f, 40f, 104f, 50f, 108f, 60f, 104f, 66f, 100f, 67f, 96f, 65f, 90f, 63f, 80f, 63.5f, 66f, 66f, 52f, 69f, 46f, 72f, 34f, 64f, 31f, 54.5f, 28f, pair = false),
-    Blob(28f, 34f, 23f, 39f, 22f, 48f, 20.5f, 60f, 19.5f, 72f, 17.5f, 84f, 16.5f, 96f, 22.5f, 96f, 25f, 84f, 27.5f, 72f, 30.5f, 60f, 32f, 48f, 31f, 40f),
+    Poly(45.5f, 28f, 36f, 31f, 28f, 34f, 31f, 46f, 34f, 52f, 36.5f, 66f, 37f, 80f, 35f, 90f, 33f, 96f, 34f, 100f, 40f, 104f, 50f, 108f, 60f, 104f, 66f, 100f, 67f, 96f, 65f, 90f, 63f, 80f, 63.5f, 66f, 66f, 52f, 69f, 46f, 72f, 34f, 64f, 31f, 54.5f, 28f, pair = false),
+    Poly(28f, 34f, 23f, 39f, 22f, 48f, 20.5f, 60f, 19.5f, 72f, 17.5f, 84f, 16.5f, 96f, 22.5f, 96f, 25f, 84f, 27.5f, 72f, 30.5f, 60f, 32f, 48f, 31f, 40f),
     Oval(19.5f, 101f, 3.5f, 5f),
-    Blob(33f, 94f, 31.5f, 112f, 33f, 135f, 35f, 149f, 34f, 163f, 36.5f, 183f, 38f, 188f, 43.5f, 188f, 44f, 178f, 45.5f, 160f, 46.5f, 148f, 48.5f, 128f, 50f, 107f, 42f, 100f),
+    Poly(33f, 94f, 31.5f, 112f, 33f, 135f, 35f, 149f, 34f, 163f, 36.5f, 183f, 38f, 188f, 43.5f, 188f, 44f, 178f, 45.5f, 160f, 46.5f, 148f, 48.5f, 128f, 50f, 107f, 42f, 100f),
     Oval(40.5f, 191f, 5f, 3f),
 )
 
-private val delts = Blob(34.5f, 33.5f, 29f, 34f, 24f, 39f, 23f, 47f, 26f, 50.5f, 30f, 46f, 33.5f, 39f, region = BodyRegion.SHOULDERS)
-private val forearms = Blob(20f, 73f, 27f, 73f, 25f, 81f, 22f, 95f, 18f, 95f, 18.3f, 84f, region = BodyRegion.FOREARMS)
+private val delts = Poly(34.5f, 33.5f, 29f, 34f, 24f, 39f, 23f, 47f, 26f, 50.5f, 30f, 46f, 33.5f, 39f, region = BodyRegion.SHOULDERS)
+private val forearms = Poly(20f, 73f, 27f, 73f, 25f, 81f, 22f, 95f, 18f, 95f, 18.3f, 84f, region = BodyRegion.FOREARMS)
 
 private val front = silhouette + listOf(
     delts,
     forearms,
-    Blob(49f, 36f, 49f, 52f, 42f, 55f, 35f, 52f, 33f, 45f, 36f, 37f, region = BodyRegion.CHEST),
-    Blob(24f, 53f, 29f, 52.5f, 30f, 58f, 28.5f, 68f, 25f, 70.5f, 22f, 64f, region = BodyRegion.BICEPS),
-    Blob(36.5f, 57f, 42f, 59f, 42.5f, 86f, 39.5f, 92f, 37f, 84f, 37f, 68f, region = BodyRegion.OBLIQUES),
+    Poly(49f, 36f, 49f, 52f, 42f, 55f, 35f, 52f, 33f, 45f, 36f, 37f, region = BodyRegion.CHEST),
+    Poly(24f, 53f, 29f, 52.5f, 30f, 58f, 28.5f, 68f, 25f, 70.5f, 22f, 64f, region = BodyRegion.BICEPS),
+    Poly(36.5f, 57f, 42f, 59f, 42.5f, 86f, 39.5f, 92f, 37f, 84f, 37f, 68f, region = BodyRegion.OBLIQUES),
     // Пресс кубиками: три ряда и низ
-    Bar(43.5f, 56f, 49f, 64.5f, 2f, BodyRegion.ABS, pair = true),
-    Bar(43.5f, 66f, 49f, 74f, 2f, BodyRegion.ABS, pair = true),
-    Bar(43.5f, 75.5f, 49f, 83.5f, 2f, BodyRegion.ABS, pair = true),
-    Blob(43.5f, 85f, 49f, 85f, 49f, 97f, 45f, 93f, region = BodyRegion.ABS),
-    Blob(34f, 98f, 41f, 101f, 45f, 112f, 46f, 140f, 42f, 147f, 37f, 146f, 33.5f, 128f, 32.5f, 110f, region = BodyRegion.QUADS),
-    Blob(45.8f, 104f, 49f, 108.5f, 48.6f, 118f, 46.6f, 128f, 46.2f, 113f, region = BodyRegion.ADDUCTORS),
-    Blob(35.5f, 153f, 40f, 152f, 43.5f, 158f, 43f, 175f, 40.5f, 184f, 37.5f, 183f, 35.5f, 168f, region = BodyRegion.CALVES),
+    Bar(43.5f, 56f, 49f, 64.5f, BodyRegion.ABS, pair = true),
+    Bar(43.5f, 66f, 49f, 74f, BodyRegion.ABS, pair = true),
+    Bar(43.5f, 75.5f, 49f, 83.5f, BodyRegion.ABS, pair = true),
+    Poly(43.5f, 85f, 49f, 85f, 49f, 97f, 45f, 93f, region = BodyRegion.ABS),
+    Poly(34f, 98f, 41f, 101f, 45f, 112f, 46f, 140f, 42f, 147f, 37f, 146f, 33.5f, 128f, 32.5f, 110f, region = BodyRegion.QUADS),
+    Poly(45.8f, 104f, 49f, 108.5f, 48.6f, 118f, 46.6f, 128f, 46.2f, 113f, region = BodyRegion.ADDUCTORS),
+    Poly(35.5f, 153f, 40f, 152f, 43.5f, 158f, 43f, 175f, 40.5f, 184f, 37.5f, 183f, 35.5f, 168f, region = BodyRegion.CALVES),
 )
 
 private val back = silhouette + listOf(
     delts,
     forearms,
-    Blob(50f, 21f, 55f, 27f, 64f, 32.5f, 58f, 38f, 53f, 52f, 50f, 62f, 47f, 52f, 42f, 38f, 36f, 32.5f, 45f, 27f, region = BodyRegion.TRAPS, pair = false),
-    Blob(33f, 46f, 38f, 41.5f, 44f, 46.5f, 47.2f, 57f, 46f, 68f, 42f, 80f, 38.5f, 86f, 37.6f, 74f, 35.8f, 58f, region = BodyRegion.UPPER_BACK),
-    Blob(48.8f, 64f, 48.8f, 95f, 44f, 95f, 42.5f, 86f, 45.5f, 72f, region = BodyRegion.LOWER_BACK),
-    Blob(23f, 52f, 27f, 51.5f, 30f, 53f, 30f, 62f, 28f, 70f, 23.5f, 70f, 21.5f, 60f, region = BodyRegion.TRICEPS),
-    Blob(34f, 97f, 42f, 95.5f, 48.8f, 99f, 48.8f, 111f, 44f, 115f, 36f, 113f, 33f, 105f, region = BodyRegion.GLUTES),
-    Blob(33.5f, 117f, 40f, 115.5f, 48f, 117f, 47f, 137f, 44f, 146f, 38f, 146f, 34f, 132f, region = BodyRegion.HAMSTRINGS),
-    Blob(35.5f, 152f, 41f, 150.5f, 44.6f, 156f, 44f, 168f, 41.5f, 180f, 38f, 180f, 35f, 166f, region = BodyRegion.CALVES),
+    Poly(50f, 21f, 55f, 27f, 64f, 32.5f, 58f, 38f, 53f, 52f, 50f, 62f, 47f, 52f, 42f, 38f, 36f, 32.5f, 45f, 27f, region = BodyRegion.TRAPS, pair = false),
+    Poly(33f, 46f, 38f, 41.5f, 44f, 46.5f, 47.2f, 57f, 46f, 68f, 42f, 80f, 38.5f, 86f, 37.6f, 74f, 35.8f, 58f, region = BodyRegion.UPPER_BACK),
+    Poly(48.8f, 64f, 48.8f, 95f, 44f, 95f, 42.5f, 86f, 45.5f, 72f, region = BodyRegion.LOWER_BACK),
+    Poly(23f, 52f, 27f, 51.5f, 30f, 53f, 30f, 62f, 28f, 70f, 23.5f, 70f, 21.5f, 60f, region = BodyRegion.TRICEPS),
+    Poly(34f, 97f, 42f, 95.5f, 48.8f, 99f, 48.8f, 111f, 44f, 115f, 36f, 113f, 33f, 105f, region = BodyRegion.GLUTES),
+    Poly(33.5f, 117f, 40f, 115.5f, 48f, 117f, 47f, 137f, 44f, 146f, 38f, 146f, 34f, 132f, region = BodyRegion.HAMSTRINGS),
+    Poly(35.5f, 152f, 41f, 150.5f, 44.6f, 156f, 44f, 168f, 41.5f, 180f, 38f, 180f, 35f, 166f, region = BodyRegion.CALVES),
 )
 
 private val Idle = Color(0xFF363A41)
