@@ -2,6 +2,7 @@ package train.app
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,20 +15,24 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -80,106 +85,187 @@ fun BodyGroup.label() = when (this) {
 /** Подходы с дробью: вспомогательная мышца — полподхода. */
 fun sets(x: Double): String = if (x == x.roundToInt().toDouble()) x.roundToInt().toString() else num(x)
 
-// Схема тела: фигура 100 × 200, `pair` — ещё и зеркально справа
+// Схема тела: фигура 100 × 200, описана левая половина; `pair` — ещё и зеркально справа. Это
+// схема, а не анатомический рисунок: контур и мышцы — многоугольники с острыми углами, круглые
+// только голова, кисти и стопы. Сначала силуэт одним цветом без обводки — руки, ноги, торс
+// сливаются в одну фигуру, — поверх мышцы с тёмной обводкой: между соседями тонкий шов, а не дыра
 
 private sealed interface Part {
     val region: BodyRegion?
     val pair: Boolean
     fun path(mirror: Boolean): Path
+    fun contains(x: Float, y: Float, mirror: Boolean): Boolean
 }
 
 private class Oval(val cx: Float, val cy: Float, val rx: Float, val ry: Float, override val region: BodyRegion? = null, override val pair: Boolean = true) : Part {
-    override fun path(mirror: Boolean) = Path().apply {
-        val x = if (mirror) 100 - cx else cx
-        addOval(Rect(x - rx, cy - ry, x + rx, cy + ry))
+    private fun x(mirror: Boolean) = if (mirror) 100 - cx else cx
+    override fun path(mirror: Boolean) = Path().apply { addOval(Rect(x(mirror) - rx, cy - ry, x(mirror) + rx, cy + ry)) }
+    override fun contains(x: Float, y: Float, mirror: Boolean): Boolean {
+        val dx = (x - x(mirror)) / rx
+        val dy = (y - cy) / ry
+        return dx * dx + dy * dy <= 1
     }
 }
 
-private class Bar(val l: Float, val t: Float, val r: Float, val b: Float, val rad: Float, override val region: BodyRegion? = null) : Part {
-    override val pair = false
-    override fun path(mirror: Boolean) = Path().apply { addRoundRect(RoundRect(l, t, r, b, CornerRadius(rad))) }
+private class Bar(val l: Float, val t: Float, val r: Float, val b: Float, override val region: BodyRegion? = null, override val pair: Boolean = false) : Part {
+    private fun rect(mirror: Boolean) = if (mirror) Rect(100 - r, t, 100 - l, b) else Rect(l, t, r, b)
+    override fun path(mirror: Boolean) = Path().apply { addRect(rect(mirror)) }
+    override fun contains(x: Float, y: Float, mirror: Boolean) = rect(mirror).contains(Offset(x, y))
 }
 
 private class Poly(vararg val xy: Float, override val region: BodyRegion? = null, override val pair: Boolean = true) : Part {
+    private fun points(mirror: Boolean) = (xy.indices step 2).map { Offset(if (mirror) 100 - xy[it] else xy[it], xy[it + 1]) }
+
     override fun path(mirror: Boolean) = Path().apply {
-        for (i in xy.indices step 2) {
-            val x = if (mirror) 100 - xy[i] else xy[i]
-            if (i == 0) moveTo(x, xy[1]) else lineTo(x, xy[i + 1])
-        }
+        points(mirror).forEachIndexed { i, o -> if (i == 0) moveTo(o.x, o.y) else lineTo(o.x, o.y) }
         close()
+    }
+
+    override fun contains(x: Float, y: Float, mirror: Boolean): Boolean {
+        val p = points(mirror)
+        var inside = false
+        var j = p.lastIndex
+        for (i in p.indices) {
+            if ((p[i].y > y) != (p[j].y > y) && x < (p[j].x - p[i].x) * (y - p[i].y) / (p[j].y - p[i].y) + p[i].x) inside = !inside
+            j = i
+        }
+        return inside
     }
 }
 
-private val common = listOf(
-    Bar(31f, 33f, 69f, 95f, 10f), // туловище — фон, чтобы между мышцами не было дыр
-    Oval(50f, 15f, 9f, 10.5f, pair = false),
-    Bar(46f, 24f, 54f, 32f, 2f),
-    Oval(18.5f, 100.5f, 3.8f, 4.5f),
-    Poly(35f, 91f, 65f, 91f, 62f, 104f, 38f, 104f, pair = false),
-    Oval(40f, 148.5f, 5.5f, 5f),
-    Oval(38.5f, 189f, 6.5f, 3.2f),
-    Oval(28.5f, 42f, 7.5f, 8.5f, BodyRegion.SHOULDERS),
-    Oval(20.5f, 84f, 4.5f, 12f, BodyRegion.FOREARMS),
+private val silhouette = listOf(
+    Oval(50f, 13.5f, 8.5f, 10f, pair = false),
+    Bar(45f, 20f, 55f, 32f),
+    // Торс: от шеи по плечу, подмышка, талия, бедро, промежность
+    Poly(45.5f, 28f, 36f, 31f, 28f, 34f, 31f, 46f, 34f, 52f, 36.5f, 66f, 37f, 80f, 35f, 90f, 33f, 96f, 34f, 100f, 40f, 104f, 50f, 108f, 60f, 104f, 66f, 100f, 67f, 96f, 65f, 90f, 63f, 80f, 63.5f, 66f, 66f, 52f, 69f, 46f, 72f, 34f, 64f, 31f, 54.5f, 28f, pair = false),
+    Poly(28f, 34f, 23f, 39f, 22f, 48f, 20.5f, 60f, 19.5f, 72f, 17.5f, 84f, 16.5f, 96f, 22.5f, 96f, 25f, 84f, 27.5f, 72f, 30.5f, 60f, 32f, 48f, 31f, 40f),
+    Oval(19.5f, 101f, 3.5f, 5f),
+    Poly(33f, 94f, 31.5f, 112f, 33f, 135f, 35f, 149f, 34f, 163f, 36.5f, 183f, 38f, 188f, 43.5f, 188f, 44f, 178f, 45.5f, 160f, 46.5f, 148f, 48.5f, 128f, 50f, 107f, 42f, 100f),
+    Oval(40.5f, 191f, 5f, 3f),
 )
 
-private val front = common + listOf(
-    Poly(45f, 26.5f, 48f, 30f, 36f, 36.5f, 31.5f, 35f, region = BodyRegion.TRAPS),
-    Oval(41.5f, 47f, 9.5f, 8f, BodyRegion.CHEST),
-    Oval(24f, 61f, 5f, 10.5f, BodyRegion.BICEPS),
-    Oval(36.5f, 74f, 5f, 14f, BodyRegion.OBLIQUES),
-    Bar(43.5f, 56f, 56.5f, 91f, 4f, BodyRegion.ABS),
-    Oval(40.5f, 124f, 9f, 22f, BodyRegion.QUADS),
-    Oval(47.3f, 111f, 3f, 10f, BodyRegion.ADDUCTORS),
-    Oval(39.5f, 168f, 6f, 16f, BodyRegion.CALVES),
+private val delts = Poly(34.5f, 33.5f, 29f, 34f, 24f, 39f, 23f, 47f, 26f, 50.5f, 30f, 46f, 33.5f, 39f, region = BodyRegion.SHOULDERS)
+private val forearms = Poly(20f, 73f, 27f, 73f, 25f, 81f, 22f, 95f, 18f, 95f, 18.3f, 84f, region = BodyRegion.FOREARMS)
+
+private val front = silhouette + listOf(
+    delts,
+    forearms,
+    Poly(49f, 36f, 49f, 52f, 42f, 55f, 35f, 52f, 33f, 45f, 36f, 37f, region = BodyRegion.CHEST),
+    Poly(24f, 53f, 29f, 52.5f, 30f, 58f, 28.5f, 68f, 25f, 70.5f, 22f, 64f, region = BodyRegion.BICEPS),
+    Poly(36.5f, 57f, 42f, 59f, 42.5f, 86f, 39.5f, 92f, 37f, 84f, 37f, 68f, region = BodyRegion.OBLIQUES),
+    // Пресс кубиками: три ряда и низ
+    Bar(43.5f, 56f, 49f, 64.5f, BodyRegion.ABS, pair = true),
+    Bar(43.5f, 66f, 49f, 74f, BodyRegion.ABS, pair = true),
+    Bar(43.5f, 75.5f, 49f, 83.5f, BodyRegion.ABS, pair = true),
+    Poly(43.5f, 85f, 49f, 85f, 49f, 97f, 45f, 93f, region = BodyRegion.ABS),
+    Poly(34f, 98f, 41f, 101f, 45f, 112f, 46f, 140f, 42f, 147f, 37f, 146f, 33.5f, 128f, 32.5f, 110f, region = BodyRegion.QUADS),
+    Poly(45.8f, 104f, 49f, 108.5f, 48.6f, 118f, 46.6f, 128f, 46.2f, 113f, region = BodyRegion.ADDUCTORS),
+    Poly(35.5f, 153f, 40f, 152f, 43.5f, 158f, 43f, 175f, 40.5f, 184f, 37.5f, 183f, 35.5f, 168f, region = BodyRegion.CALVES),
 )
 
-private val back = common + listOf(
-    Poly(50f, 25f, 65f, 37f, 50f, 60f, 35f, 37f, region = BodyRegion.TRAPS, pair = false),
-    Poly(36f, 46f, 46f, 53f, 47f, 82f, 40f, 84f, 33f, 62f, region = BodyRegion.UPPER_BACK),
-    Bar(44.5f, 64f, 55.5f, 91f, 4f, BodyRegion.LOWER_BACK),
-    Oval(24f, 61f, 5f, 10.5f, BodyRegion.TRICEPS),
-    Oval(42f, 103f, 8.5f, 9f, BodyRegion.GLUTES),
-    Oval(40.5f, 131f, 8.5f, 18f, BodyRegion.HAMSTRINGS),
-    Oval(39.5f, 166f, 6.5f, 15f, BodyRegion.CALVES),
+private val back = silhouette + listOf(
+    delts,
+    forearms,
+    Poly(50f, 21f, 55f, 27f, 64f, 32.5f, 58f, 38f, 53f, 52f, 50f, 62f, 47f, 52f, 42f, 38f, 36f, 32.5f, 45f, 27f, region = BodyRegion.TRAPS, pair = false),
+    Poly(33f, 46f, 38f, 41.5f, 44f, 46.5f, 47.2f, 57f, 46f, 68f, 42f, 80f, 38.5f, 86f, 37.6f, 74f, 35.8f, 58f, region = BodyRegion.UPPER_BACK),
+    Poly(48.8f, 64f, 48.8f, 95f, 44f, 95f, 42.5f, 86f, 45.5f, 72f, region = BodyRegion.LOWER_BACK),
+    Poly(23f, 52f, 27f, 51.5f, 30f, 53f, 30f, 62f, 28f, 70f, 23.5f, 70f, 21.5f, 60f, region = BodyRegion.TRICEPS),
+    Poly(34f, 97f, 42f, 95.5f, 48.8f, 99f, 48.8f, 111f, 44f, 115f, 36f, 113f, 33f, 105f, region = BodyRegion.GLUTES),
+    Poly(33.5f, 117f, 40f, 115.5f, 48f, 117f, 47f, 137f, 44f, 146f, 38f, 146f, 34f, 132f, region = BodyRegion.HAMSTRINGS),
+    Poly(35.5f, 152f, 41f, 150.5f, 44.6f, 156f, 44f, 168f, 41.5f, 180f, 38f, 180f, 35f, 166f, region = BodyRegion.CALVES),
 )
 
 private val Idle = Color(0xFF363A41)
-private val Low = Color(0xFF45561B)
 
-/** Цвет участка: без нагрузки — серый, дальше от тёмно-зелёного к лаймовому. */
-fun loadColor(t: Double): Color = if (t <= 0) Idle else lerp(Low, C.Lime, (0.15 + 0.85 * t).toFloat().coerceIn(0f, 1f))
+/** Шкала нагрузки — как оценки подхода: мало — синий, средне — зелёный, дальше жёлтый, больше всего — красный. */
+private val scale = listOf(
+    0f to Color(0xFF4A7BE8),
+    0.4f to Color(0xFF5ACF7E),
+    0.72f to Color(0xFFF2C94C),
+    1f to Color(0xFFFF6B6B),
+)
 
-/** Тело спереди и сзади, участки подсвечены по подходам за период. */
+/** Цвет участка: без нагрузки — серый, дальше по [scale] от доли самого нагруженного. */
+fun loadColor(t: Double): Color {
+    if (t <= 0) return Idle
+    val x = t.toFloat().coerceIn(0f, 1f)
+    val i = scale.indexOfLast { it.first <= x }.coerceAtMost(scale.size - 2)
+    val (a, from) = scale[i]
+    val (b, to) = scale[i + 1]
+    return lerp(from, to, (x - a) / (b - a))
+}
+
+/** Тело спереди и сзади, участки подсвечены по подходам за период; тап по мышце — её подходы. */
 @Composable
 fun BodyMap(stats: Stats, modifier: Modifier = Modifier) {
     val max = stats.regions.maxOfOrNull { it.sets }?.takeIf { it > 0 } ?: 1.0
+    var selected by remember { mutableStateOf<BodyRegion?>(null) }
+    val pick = { r: BodyRegion? -> selected = if (r == selected) null else r }
     Column(modifier) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             listOf("Спереди" to front, "Сзади" to back).forEach { (title, parts) ->
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Figure(parts, { r -> stats.load(r) / max }, Modifier.fillMaxWidth(0.82f).aspectRatio(0.5f))
+                    Figure(parts, { r -> stats.load(r) / max }, selected, pick, Modifier.fillMaxWidth(0.82f).aspectRatio(0.5f))
                     Txt(title, T.small, Modifier.padding(top = 4.dp))
                 }
             }
         }
-        Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Txt("нет", T.small)
-            listOf(0.0, 0.25, 0.5, 0.75, 1.0).forEach { Box(Modifier.width(18.dp).height(8.dp).clip(RoundedCornerShape(2.dp)).background(loadColor(it))) }
-            Txt("больше всего подходов", T.small)
+        Row(Modifier.padding(top = 10.dp).height(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            val r = selected
+            if (r == null) {
+                Box(Modifier.width(18.dp).height(8.dp).clip(RoundedCornerShape(2.dp)).background(Idle))
+                Txt("нет", T.small, Modifier.padding(end = 6.dp))
+                Txt("мало", T.small)
+                listOf(0.05, 0.3, 0.55, 0.8, 1.0).forEach { Box(Modifier.width(18.dp).height(8.dp).clip(RoundedCornerShape(2.dp)).background(loadColor(it))) }
+                Txt("много", T.small)
+            } else {
+                val n = stats.load(r)
+                Box(Modifier.width(18.dp).height(8.dp).clip(RoundedCornerShape(2.dp)).background(loadColor(n / max)))
+                Txt(r.label(), ts(13.sp, C.Soft, FontWeight.Medium))
+                Txt(
+                    when {
+                        n <= 0 -> "не было"
+                        n != n.roundToInt().toDouble() -> "${sets(n)} подхода"
+                        else -> "${sets(n)} ${plural(n.roundToInt(), "подход", "подхода", "подходов")}"
+                    },
+                    T.small,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun Figure(parts: List<Part>, load: (BodyRegion) -> Double, modifier: Modifier) {
-    val paths = remember(parts) { parts.flatMap { p -> listOfNotNull(p to p.path(false), if (p.pair) p to p.path(true) else null) } }
-    Canvas(modifier) {
+private fun Figure(parts: List<Part>, load: (BodyRegion) -> Double, selected: BodyRegion?, onTap: (BodyRegion?) -> Unit, modifier: Modifier) {
+    val shapes = remember(parts) { parts.flatMap { p -> listOfNotNull(Triple(p, false, p.path(false)), if (p.pair) Triple(p, true, p.path(true)) else null) } }
+    val tap by rememberUpdatedState(onTap)
+    Canvas(
+        modifier.pointerInput(parts) {
+            detectTapGestures { o ->
+                val k = size.width / 100f
+                val x = o.x / k
+                val y = o.y / k
+                val muscles = shapes.filter { it.first.region != null }
+                // Мимо мышцы на пару единиц — всё равно она: на телефоне кубик пресса шириной с полпальца
+                val hit = muscles.lastOrNull { (p, m) -> p.contains(x, y, m) }
+                    ?: muscles.map { it to it.third.getBounds().inflate(2.5f) }.filter { it.second.contains(Offset(x, y)) }
+                        .minByOrNull { (it.second.center - Offset(x, y)).getDistance() }?.first
+                tap(hit?.first?.region)
+            }
+        },
+    ) {
         val k = size.width / 100f
         scale(k, k, pivot = Offset.Zero) {
-            paths.forEach { (part, path) ->
-                drawPath(path, part.region?.let { loadColor(load(it)) } ?: C.Field)
-                drawPath(path, C.Bg, style = Stroke(0.9f))
+            shapes.forEach { (part, _, path) ->
+                val region = part.region
+                if (region == null) {
+                    drawPath(path, C.Field)
+                } else {
+                    drawPath(path, loadColor(load(region)))
+                    drawPath(path, C.Bg, style = Stroke(0.9f))
+                }
             }
+            if (selected != null) shapes.filter { it.first.region == selected }.forEach { drawPath(it.third, C.Text, style = Stroke(1.4f)) }
         }
     }
 }
