@@ -75,6 +75,7 @@ class Row(private val rs: ResultSet) {
     fun bool(c: String): Boolean = rs.getBoolean(c)
     fun instant(c: String): Instant? = rs.getObject(c, OffsetDateTime::class.java)?.toInstant()?.toKotlinInstant()
     fun date(c: String): kotlinx.datetime.LocalDate? = rs.getObject(c, java.time.LocalDate::class.java)?.toKotlinLocalDate()
+    fun uuids(c: String): List<Uuid> = (rs.getArray(c)?.array as Array<*>?).orEmpty().map { (it as UUID).toKotlinUuid() }
     fun <T> json(c: String, serializer: KSerializer<T>): T = TrainJson.decodeFromString(serializer, rs.getString(c))
     inline fun <reified E : Enum<E>> enum(c: String): E? = string(c)?.let { enumValueOf<E>(it) }
 

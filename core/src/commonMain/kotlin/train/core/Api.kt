@@ -109,10 +109,11 @@ data class Trash(
     val workouts: List<Workout> = emptyList(),
     val measurements: List<Measurement> = emptyList(),
     val photos: List<Photo> = emptyList(),
+    val journal: List<JournalEntry> = emptyList(),
 )
 
 @Serializable
-data class Purged(val plans: Int, val workouts: Int, val measurements: Int, val photos: Int = 0)
+data class Purged(val plans: Int, val workouts: Int, val measurements: Int, val photos: Int = 0, val journal: Int = 0)
 
 /** Типы фото, которые принимает сервер; тип определяется по содержимому, не по заголовку. */
 val PHOTO_TYPES = listOf("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif")

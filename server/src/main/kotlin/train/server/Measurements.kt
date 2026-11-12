@@ -103,6 +103,7 @@ class TrashResource(private val db: Db, private val user: CurrentUser, private v
             workouts = db.list("select * from workout where user_id = ? and deleted order by started_at desc", user.id) { it.workout() },
             measurements = db.list("select * from measurement where user_id = ? and deleted order by measured_at desc", user.id) { it.measurement() },
             photos = db.list("select * from photo where user_id = ? and deleted_at is not null order by deleted_at desc", user.id) { it.photo() },
+            journal = db.list("$JOURNAL_SELECT where j.user_id = ? and j.deleted_at is not null order by j.deleted_at desc", user.id) { it.journalEntry() },
         )
     }
 
@@ -114,11 +115,12 @@ class TrashResource(private val db: Db, private val user: CurrentUser, private v
     @jakarta.ws.rs.POST
     @Transactional
     fun purge(): Purged {
+        val journal = db.update("delete from journal_entry where user_id = ? and deleted_at is not null", user.id)
         val measurements = db.update("delete from measurement where user_id = ? and deleted", user.id)
         val workouts = db.update("delete from workout where user_id = ? and deleted", user.id)
         val plans = db.update("delete from plan where user_id = ? and deleted_at is not null", user.id)
         val photoIds = db.list("delete from photo where user_id = ? and deleted_at is not null returning id", user.id) { it.uuidReq("id") }
         photoIds.forEach { photos.delete(user.id, it) }
-        return Purged(plans, workouts, measurements, photoIds.size)
+        return Purged(plans, workouts, measurements, photoIds.size, journal)
     }
 }

@@ -27,13 +27,14 @@ class Session(val api: ApiClient, val config: Config, val json: Json)
 
 private val PrettyJson = Json(TrainJson) { prettyPrint = true }
 
-// Вывод — JSON (ADR 0005): агент читает его как есть
+// Вывод — JSON (ADR 0005); чтение для агента — текстом (ADR 0014)
 class Gym(private val http: () -> HttpClient = { HttpClient(Java) { followRedirects = false } }) : SuspendingCliktCommand("gym") {
     private val url by option("--url", help = "адрес сервера; иначе GYM_URL или файл конфига")
     private val pretty by option("--pretty", help = "JSON с отступами").flag()
 
     override fun help(context: Context) = """
-        Журнал тренировок: планы, тренировки, сравнение. Вывод — JSON.
+        Журнал тренировок: планы, тренировки, сравнение. Вывод — JSON; brief, compare, history, weeks,
+        journal — плотный текст для агента, с --json — JSON.
 
         Ключ — GYM_API_KEY или файл ~/.config/gym/config (url=…, key=…, cf_client_id=…, cf_client_secret=…).
         Ошибка — JSON {"error", "status"} в stderr и код выхода 1.
@@ -102,6 +103,10 @@ fun gym(http: (() -> HttpClient)? = null): Gym = (http?.let(::Gym) ?: Gym()).sub
     Group("plan", "Планы: создать, заменить, посмотреть, удалить").subcommands(PlanPutCmd(), PlanList(), PlanGet(), PlanRm()),
     Group("workout", "Тренировки с подходами").subcommands(WorkoutList(), WorkoutGet()),
     CompareCmd(),
+    HistoryCmd(),
+    WeeksCmd(),
+    BriefCmd(),
+    Group("journal", "Журнал тренера: решения по тренировкам, планам, упражнениям").subcommands(JournalAdd(), JournalList(), JournalRm(), JournalRestore()),
     ImportCmd(),
     Group("exercise", "Справочник упражнений и поиск по датасету").subcommands(
         ExerciseList(), ExerciseGet(), ExerciseSearch(), ExerciseAdd(), ExerciseEdit(), ExerciseMedia(), ExerciseImage(), ExerciseLast(),

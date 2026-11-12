@@ -38,6 +38,7 @@ import train.core.PlanPut
 import train.core.Profile
 import train.core.RecordType
 import train.core.SyncPut
+import train.core.Trash
 import train.core.TrainJson
 import train.core.decodeStrict
 import train.core.User
@@ -51,14 +52,14 @@ import kotlin.uuid.Uuid
 
 // Разбор аргументов
 
-private fun parseUuid(s: String): Uuid = runCatching { Uuid.parse(s) }.getOrElse { throw BadParameterValue("не UUID: $s") }
+internal fun parseUuid(s: String): Uuid = runCatching { Uuid.parse(s) }.getOrElse { throw BadParameterValue("не UUID: $s") }
 
-private fun RawArgument.uuid(): ProcessedArgument<Uuid, Uuid> = convert { parseUuid(it) }
+internal fun RawArgument.uuid(): ProcessedArgument<Uuid, Uuid> = convert { parseUuid(it) }
 
-private fun RawOption.date(): NullableOption<LocalDate, LocalDate> =
+internal fun RawOption.date(): NullableOption<LocalDate, LocalDate> =
     convert("YYYY-MM-DD") { runCatching { LocalDate.parse(it) }.getOrElse { fail("дата не в формате YYYY-MM-DD: $it") } }
 
-private fun RawOption.uuid(): NullableOption<Uuid, Uuid> = convert("UUID") { parseUuid(it) }
+internal fun RawOption.uuid(): NullableOption<Uuid, Uuid> = convert("UUID") { parseUuid(it) }
 
 /** ISO 8601 или `YYYY-MM-DD` — полдень того дня в поясе этой машины. */
 private fun parseMoment(s: String): Instant? =
@@ -147,11 +148,6 @@ class WorkoutList : ApiCommand("list", "Тренировки, новые сна�
 class WorkoutGet : ApiCommand("get", "Тренировка с подходами, включая удалённые") {
     private val id by argument().uuid()
     override suspend fun exec() = out(api.workout(id))
-}
-
-class CompareCmd : ApiCommand("compare", "План против факта по тренировке: подходы, итоги, прошлые результаты") {
-    private val id by argument("workoutId").uuid()
-    override suspend fun exec() = out(api.compare(id))
 }
 
 // Справочник
@@ -353,8 +349,21 @@ class ProfilePut : ApiCommand("put", "Заменить профиль. JSON: {na
 
 // Корзина
 
-class TrashList : ApiCommand("list", "Удалённые планы, тренировки, замеры и фото") {
-    override suspend fun exec() = out(api.trash())
+class TrashList : ApiCommand("list", "Удалённые планы, тренировки, замеры, фото и записи журнала") {
+    private val only by option("--only", help = "только этот вид; можно несколько")
+        .choice("plans", "workouts", "measurements", "photos", "journal").multiple()
+
+    override suspend fun exec() {
+        val t = api.trash()
+        if (only.isEmpty()) return out(t)
+        fun <T> keep(kind: String, list: List<T>) = if (kind in only) list else emptyList()
+        out(
+            Trash(
+                keep("plans", t.plans), keep("workouts", t.workouts), keep("measurements", t.measurements),
+                keep("photos", t.photos), keep("journal", t.journal),
+            ),
+        )
+    }
 }
 
 class TrashPurge : ApiCommand("purge", "Удалить корзину насовсем. Без --yes ничего не делает") {

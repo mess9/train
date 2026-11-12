@@ -195,7 +195,7 @@ fun compare(
     )
 }
 
-private fun SetFact.toDone(rowExercise: Uuid?) = DoneSet(
+internal fun SetFact.toDone(rowExercise: Uuid?) = DoneSet(
     setNo = setNo,
     recordType = recordType,
     perSide = perSide,

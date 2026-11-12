@@ -24,7 +24,10 @@ import train.core.ApiKey
 import train.core.Comparison
 import train.core.Exercise
 import train.core.ExerciseCreate
+import train.core.ExerciseHistory
 import train.core.ExercisePatch
+import train.core.JournalEntry
+import train.core.JournalPut
 import train.core.KeyCreate
 import train.core.KeyCreated
 import train.core.Me
@@ -46,6 +49,7 @@ import train.core.TrainJson
 import train.core.User
 import train.core.UserCreate
 import train.core.UserCreated
+import train.core.WeekSummary
 import train.core.Workout
 import train.core.WorkoutDetail
 import kotlin.uuid.Uuid
@@ -141,6 +145,36 @@ class ApiClient(
     /** Сводка за период: мышцы, участки тела, минуты по дням. Без дат — последние 30 дней. */
     suspend fun stats(from: LocalDate? = null, to: LocalDate? = null): Stats =
         get("/stats" + query("from" to from?.toString(), "to" to to?.toString()))
+
+    /** Недели с понедельника, старые сначала. Без дат — восемь недель по текущую. */
+    suspend fun weeks(from: LocalDate? = null, to: LocalDate? = null): List<WeekSummary> =
+        get("/stats/weeks" + query("from" to from?.toString(), "to" to to?.toString()))
+
+    /**
+     * История упражнений; без [ids] — упражнения основных блоков за месяц. [since] — все
+     * тренировки с этого дня целиком вместо [recent] последних.
+     */
+    suspend fun history(ids: Collection<Uuid> = emptyList(), recent: Int? = null, since: LocalDate? = null): List<ExerciseHistory> =
+        get("/history" + query("ids" to ids.joinToString(",").ifEmpty { null }, "recent" to recent?.toString(), "since" to since?.toString()))
+
+    // Журнал тренера (ADR 0014)
+
+    /** [active] — только непересмотренные решения; [deleted] — только из корзины. */
+    suspend fun journal(
+        from: LocalDate? = null, to: LocalDate? = null, exercise: Uuid? = null, limit: Int? = null,
+        active: Boolean = false, deleted: Boolean = false,
+    ): List<JournalEntry> = get(
+        "/journal" + query(
+            "from" to from?.toString(), "to" to to?.toString(), "exercise" to exercise?.toString(), "limit" to limit?.toString(),
+            "active" to active.takeIf { it }?.toString(), "deleted" to deleted.takeIf { it }?.toString(),
+        ),
+    )
+
+    suspend fun putJournal(id: Uuid, body: JournalPut): JournalEntry = send(HttpMethod.Put, "/journal/$id", body)
+
+    suspend fun deleteJournal(id: Uuid) = call(HttpMethod.Delete, "/journal/$id")
+
+    suspend fun restoreJournal(id: Uuid): JournalEntry = send(HttpMethod.Post, "/journal/$id/restore", null as String?)
 
     // Замеры, профиль, корзина
 
