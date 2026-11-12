@@ -104,7 +104,7 @@ fun gym(http: (() -> HttpClient)? = null): Gym = (http?.let(::Gym) ?: Gym()).sub
     CompareCmd(),
     ImportCmd(),
     Group("exercise", "Справочник упражнений и поиск по датасету").subcommands(
-        ExerciseList(), ExerciseGet(), ExerciseSearch(), ExerciseAdd(), ExerciseEdit(), ExerciseLast(),
+        ExerciseList(), ExerciseGet(), ExerciseSearch(), ExerciseAdd(), ExerciseEdit(), ExerciseMedia(), ExerciseImage(), ExerciseLast(),
     ),
     Group("measure", "Замеры: вес тела и другие").subcommands(MeasureList(), MeasureAdd()),
     Group("photo", "Фото прогресса").subcommands(PhotoList(), PhotoAdd(), PhotoGet(), PhotoEdit(), PhotoRm(), PhotoRestore()),

@@ -25,7 +25,7 @@ val TrainJson = Json {
  * [version] — semver с коммитом сборки, `0.2.0+5cdae85`; вне сборки образа — `0.2.0+dev`.
  * [commit] — короткий хеш коммита, [build] — номер сборки Jenkins, если есть (ADR 0009).
  * [app] — хеш сборки PWA, которую сервер отдаёт сейчас: приложение сравнивает его со своим и
- * видит, что пора перезапуститься.
+ * видит, что пора перезапуститься. [dataset] — подключён ли датасет упражнений (docs/dataset.md).
  */
 @Serializable
 data class ServerInfo(
@@ -34,7 +34,15 @@ data class ServerInfo(
     val commit: String? = null,
     val build: String? = null,
     val app: String? = null,
+    val dataset: DatasetInfo? = null,
 )
+
+/**
+ * [exercises] — записей в `exercises.json` датасета: `0` — файла нет, `exercise search` пустой.
+ * [media] — папка картинок и гифок есть; нет — у упражнений из датасета не будет картинок.
+ */
+@Serializable
+data class DatasetInfo(val exercises: Int, val media: Boolean)
 
 /** `0.2.0+5cdae85`: semver и коммит как метаданные сборки. Без коммита — `0.2.0+dev`. */
 fun fullVersion(version: String = TRAIN_VERSION, commit: String?): String = "$version+${commit?.takeIf { it.isNotBlank() } ?: "dev"}"

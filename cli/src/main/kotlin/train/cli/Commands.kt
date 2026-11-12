@@ -223,6 +223,29 @@ class ExerciseEdit : ExerciseFields("edit", "Поправить упражнен
     )
 }
 
+class ExerciseMedia : ApiCommand(
+    "media",
+    "Своя картинка или гифка упражнения (JPEG, PNG, WebP, GIF) вместо заглушки или датасетной. Убрать — `exercise edit --source \"\"`",
+) {
+    private val id by argument().uuid()
+    private val file by argument(help = "файл картинки или гифки")
+    override suspend fun exec() {
+        val bytes = runCatching { Files.readAllBytes(Paths.get(file)) }.getOrElse { fail("не прочитать файл $file: ${it::class.simpleName}") }
+        out(api.uploadExerciseMedia(id, bytes))
+    }
+}
+
+class ExerciseImage : ApiCommand("image", "Скачать картинку упражнения по mediaKey (из exercise get или search) — посмотреть, то ли движение") {
+    private val key by argument("mediaKey")
+    private val outFile by option("--out", help = "куда сохранить").required()
+    private val gif by option("--gif", help = "анимацию вместо картинки").flag()
+    override suspend fun exec() {
+        val bytes = api.media(key + if (gif) ".gif" else ".jpg")
+        runCatching { Files.write(Paths.get(outFile), bytes) }.getOrElse { fail("не записать файл $outFile: ${it::class.simpleName}") }
+        out(JsonObject(mapOf("file" to JsonPrimitive(outFile), "bytes" to JsonPrimitive(bytes.size))))
+    }
+}
+
 class ExerciseLast : ApiCommand("last", "Подходы последней тренировки с каждым упражнением — чтобы подобрать веса") {
     private val ids by argument("id").uuid().multiple(required = true)
     private val exclude by option("--exclude", help = "не брать эту тренировку").convert { parseUuid(it) }

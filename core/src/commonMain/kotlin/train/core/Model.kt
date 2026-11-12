@@ -53,6 +53,10 @@ data class Exercise(
      * брусья ≈ 0,9, присед без веса ≈ 0,7. Входит в объём. `null` — собственный вес не считается.
      */
     val bodyweightFactor: Double? = null,
+    /**
+     * Медиа: `0001-2gPfomN` — из датасета, `own-…` — своя картинка или гифка (`gym exercise media`).
+     * Картинка — `/media/<key>.jpg`, анимация — `/media/<key>.gif`; у своей это один и тот же файл.
+     */
     val mediaKey: String? = null,
     val instructions: List<String> = emptyList(),
     /** Из общего справочника — его видят все, правит админ; иначе — своё упражнение (ADR 0011). */

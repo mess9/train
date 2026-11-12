@@ -19,6 +19,9 @@ class InfoResourceTest {
             // Вне сборки образа коммита нет: версия — 0.2.0+dev, номера сборки нет
             .body("version", equalTo("$TRAIN_VERSION+dev"))
             .body("build", nullValue())
+            // Тестовый датасет — две записи и папка с картинкой
+            .body("dataset.exercises", equalTo(2))
+            .body("dataset.media", equalTo(true))
     }
 
     /** По `app` приложение узнаёт, что на сервере уже другая сборка. */

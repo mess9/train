@@ -201,7 +201,14 @@ class ApiClient(
 
     suspend fun purgeTrash(): Purged = send(HttpMethod.Post, "/trash/purge", null as String?)
 
-    /** Картинка или гифка датасета по имени файла, например `0001-2gPfomN.jpg`. */
+    /** Своя картинка или гифка упражнения (JPEG, PNG, WebP, GIF) — новый `mediaKey`. */
+    suspend fun uploadExerciseMedia(id: Uuid, bytes: ByteArray): Exercise {
+        val r = request(HttpMethod.Put, "/exercises/$id/media", ByteArrayContent(bytes, ContentType.Application.OctetStream))
+        check(r)
+        return decode(r.bodyAsText())
+    }
+
+    /** Картинка или гифка упражнения по имени файла, например `0001-2gPfomN.jpg`. */
     suspend fun media(name: String): ByteArray {
         val r = http.request("$root/media/${name.encodeURLParameter()}") { auth() }
         check(r)

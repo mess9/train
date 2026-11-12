@@ -52,11 +52,18 @@ class PhotoFiles(
 
     fun file(userId: Uuid, id: Uuid): FsPath = root().resolve(userId.toString()).resolve(id.toString())
 
+    /** Своя картинка или гифка упражнения: `<train.photos.path>/exercises/<mediaKey>`; тип — по содержимому. */
+    fun exerciseMedia(key: String): FsPath = root().resolve("exercises").resolve(key)
+
     /** Принятый, но ещё не перенесённый файл: [type] определён по содержимому. */
     class Upload(val tmp: FsPath, val size: Long, val sha256: String, val type: String)
 
-    /** Прочитать тело во временный файл: не больше [maxBytes], тип — по первым байтам. */
-    fun receive(body: InputStream): Upload {
+    /**
+     * Прочитать тело во временный файл: не больше [maxBytes], тип — по первым байтам. `media` —
+     * картинка упражнения: вместо HEIC принимается GIF, браузер показывает её сам.
+     */
+    fun receive(body: InputStream, media: Boolean = false): Upload {
+        val what = if (media) "картинка" else "фото"
         val dir = root().resolve(".tmp").also { Files.createDirectories(it) }
         val tmp = Files.createTempFile(dir, "upload", "")
         try {
@@ -70,7 +77,7 @@ class PhotoFiles(
                     val n = body.read(buf)
                     if (n < 0) break
                     size += n
-                    if (size > maxBytes) throw apiError(Response.Status.REQUEST_ENTITY_TOO_LARGE, "фото больше ${maxBytes / (1024 * 1024)} МБ")
+                    if (size > maxBytes) throw apiError(Response.Status.REQUEST_ENTITY_TOO_LARGE, "$what больше ${maxBytes / (1024 * 1024)} МБ")
                     if (headLen < HEAD) {
                         val k = minOf(n, HEAD - headLen)
                         System.arraycopy(buf, 0, head, headLen, k)
@@ -80,9 +87,12 @@ class PhotoFiles(
                     out.write(buf, 0, n)
                 }
             }
-            if (size == 0L) throw badRequest("пустое тело: нужен файл фото")
-            val type = sniff(head.copyOf(headLen))
-                ?: throw apiError(Response.Status.UNSUPPORTED_MEDIA_TYPE, "не фото: принимаются JPEG, PNG, WebP, HEIC")
+            if (size == 0L) throw badRequest("пустое тело: нужен файл")
+            val type = (if (media) sniffMedia(head.copyOf(headLen)) else sniff(head.copyOf(headLen)))
+                ?: throw apiError(
+                    Response.Status.UNSUPPORTED_MEDIA_TYPE,
+                    if (media) "не картинка: принимаются JPEG, PNG, WebP, GIF" else "не фото: принимаются JPEG, PNG, WebP, HEIC",
+                )
             return Upload(tmp, size, HexFormat.of().formatHex(digest.digest()), type)
         } catch (e: Throwable) {
             tmp.deleteIfExists()
@@ -90,8 +100,9 @@ class PhotoFiles(
         }
     }
 
-    fun store(u: Upload, userId: Uuid, id: Uuid) {
-        val target = file(userId, id)
+    fun store(u: Upload, userId: Uuid, id: Uuid) = store(u, file(userId, id))
+
+    fun store(u: Upload, target: FsPath) {
         Files.createDirectories(target.parent)
         Files.move(u.tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
     }
@@ -103,6 +114,11 @@ class PhotoFiles(
     fun delete(userId: Uuid, id: Uuid) {
         runCatching { file(userId, id).deleteIfExists() }
             .onFailure { log.warn("не удалить файл фото $id: ${it.message}") }
+    }
+
+    fun deleteExerciseMedia(key: String) {
+        runCatching { exerciseMedia(key).deleteIfExists() }
+            .onFailure { log.warn("не удалить картинку упражнения $key: ${it.message}") }
     }
 
     companion object {
@@ -122,6 +138,11 @@ class PhotoFiles(
                 else -> null
             }
         }
+
+        /** Картинка упражнения: то, что показывает браузер, — JPEG, PNG, WebP, GIF. */
+        fun sniffMedia(b: ByteArray): String? =
+            if (b.size >= 4 && String(b, 0, 4, Charsets.US_ASCII) == "GIF8") "image/gif"
+            else sniff(b)?.takeUnless { it.startsWith("image/hei") }
     }
 }
 

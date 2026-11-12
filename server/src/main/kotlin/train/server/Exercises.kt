@@ -1,12 +1,15 @@
 package train.server
 
 import jakarta.transaction.Transactional
+import jakarta.ws.rs.Consumes
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.PATCH
 import jakarta.ws.rs.POST
+import jakarta.ws.rs.PUT
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
 import jakarta.ws.rs.QueryParam
+import jakarta.ws.rs.core.MediaType
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import train.core.API_PREFIX
@@ -16,6 +19,8 @@ import train.core.ExercisePatch
 import train.core.RecordType
 import train.core.SetFact
 import train.core.newId
+import java.io.InputStream
+import kotlin.random.Random
 
 private val strings = ListSerializer(String.serializer())
 
@@ -25,6 +30,7 @@ class ExerciseResource(
     private val user: CurrentUser,
     private val source: Source,
     private val store: Store,
+    private val files: PhotoFiles,
 ) {
     /** Справочник: сначала недавно сделанные, потом по названию. `q` — подстрока в ru или en названии. */
     @GET
@@ -92,9 +98,7 @@ class ExerciseResource(
     @Transactional
     fun patch(@PathParam("id") id: String, body: ExercisePatch): Exercise {
         val exId = parseId(id)
-        val old = db.one("select * from exercise where id = ? and ${Store.VISIBLE} for update", exId, user.id) { it.exercise() }
-            ?: throw notFound()
-        if (old.shared) user.requireAdmin()
+        val old = editable(exId)
         val src = body.sourceId?.takeIf { it.isNotBlank() }?.let { source[it] ?: throw badRequest("нет в источнике: $it") }
         val e = old.copy(
             nameRu = body.nameRu?.trim() ?: old.nameRu,
@@ -123,7 +127,45 @@ class ExerciseResource(
             e.equipment, Json.of(strings, e.musclesPrimary), Json.of(strings, e.musclesSecondary),
             e.sourceId, e.mediaKey, Json.of(strings, e.instructions), exId,
         )
+        dropOwnMedia(old.mediaKey, e.mediaKey)
         return e
+    }
+
+    /**
+     * Своя картинка или гифка вместо датасетной или вместо заглушки: тело — файл JPEG, PNG, WebP
+     * или GIF. Каждая загрузка — новый `mediaKey` (`own-…`): телефоны держат медиа в вечном кэше.
+     * Прежняя своя картинка удаляется; убрать картинку — `PATCH` с `sourceId: ""`.
+     */
+    @PUT
+    @Path("{id}/media")
+    @Consumes(MediaType.WILDCARD)
+    @Transactional
+    fun media(@PathParam("id") id: String, body: InputStream): Exercise {
+        val exId = parseId(id)
+        // Сначала файл, потом база: соединение не держится, пока идёт загрузка
+        val upload = files.receive(body, media = true)
+        try {
+            val old = editable(exId)
+            val key = OWN_MEDIA_PREFIX + (1..12).map { KEY_CHARS[Random.nextInt(KEY_CHARS.length)] }.joinToString("")
+            db.update("update exercise set media_key = ? where id = ?", key, exId)
+            files.store(upload, files.exerciseMedia(key))
+            dropOwnMedia(old.mediaKey, key)
+            return old.copy(mediaKey = key)
+        } finally {
+            files.discard(upload)
+        }
+    }
+
+    /** Упражнение, которое пользователь вправе править, под блокировкой строки. */
+    private fun editable(exId: kotlin.uuid.Uuid): Exercise {
+        val old = db.one("select * from exercise where id = ? and ${Store.VISIBLE} for update", exId, user.id) { it.exercise() }
+            ?: throw notFound()
+        if (old.shared) user.requireAdmin()
+        return old
+    }
+
+    private fun dropOwnMedia(old: String?, new: String?) {
+        if (old != null && old != new && old.startsWith(OWN_MEDIA_PREFIX)) files.deleteExerciseMedia(old)
     }
 
     /**
@@ -135,6 +177,10 @@ class ExerciseResource(
     fun lastSets(@QueryParam("ids") ids: String?, @QueryParam("exclude") exclude: String?): List<SetFact> {
         val exerciseIds = ids.orEmpty().split(',').filter { it.isNotBlank() }.map { parseIdParam(it) }
         return store.lastSets(user.id, exerciseIds, exclude = exclude?.let(::parseIdParam))
+    }
+
+    private companion object {
+        const val KEY_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789"
     }
 
     private fun validate(e: Exercise) {

@@ -175,4 +175,43 @@ class PhotosTest {
         assertEquals(p, a.get<Photo>("/api/photos/${p.id}"))
         assertEquals(401, TestApi(null).status("/api/photos/${p.id}/file"))
     }
+
+    /** Своя картинка упражнения: GIF и картинка, один файл на `.jpg` и `.gif`, новая заменяет старую. */
+    @Test
+    fun exerciseMedia() {
+        val api = users.newApi()
+        val own = api.post<_, train.core.Exercise>("/api/exercises", train.core.ExerciseCreate(nameRu = "Растяжка ${newId()}"))
+        fun upload(bytes: ByteArray, id: Uuid = own.id): Response =
+            api.spec().contentType("application/octet-stream").body(bytes).put("/api/exercises/$id/media")
+
+        val gif = "GIF89a".toByteArray() + Random.nextBytes(256)
+        val a = with(api) { upload(gif).decode<train.core.Exercise>(200, "media") }
+        val key = a.mediaKey!!
+        assertTrue(key.startsWith("own-"), key)
+        assertEquals(a, api.get<train.core.Exercise>("/api/exercises/${own.id}"))
+        for (ext in listOf("jpg", "gif")) {
+            val r = api.spec().get("/media/$key.$ext")
+            assertEquals(200, r.statusCode, ext)
+            assertTrue(r.contentType.startsWith("image/gif"), r.contentType)
+            assertArrayEquals(gif, r.asByteArray())
+        }
+        assertEquals(401, TestApi(null).status("/media/$key.jpg"))
+
+        // Новая картинка — новый ключ, старый файл удалён
+        val b = with(api) { upload(png()).decode<train.core.Exercise>(200, "media") }
+        assertTrue(b.mediaKey != key)
+        assertEquals(404, api.status("/media/$key.jpg"))
+        assertTrue(api.spec().get("/media/${b.mediaKey}.gif").contentType.startsWith("image/png"))
+
+        // Не картинка и HEIC — 415; чужое общее упражнение не трогается
+        assertEquals(415, upload("hello".toByteArray()).statusCode)
+        val heic = byteArrayOf(0, 0, 0, 0x18) + "ftypheic".toByteArray() + Random.nextBytes(64)
+        assertEquals(415, upload(heic).statusCode)
+        assertEquals(404, upload(gif, newId()).statusCode)
+
+        // Отвязать — картинки нет, файл удалён
+        val cleared = with(api) { api.spec().body("""{"sourceId":""}""").patch("/api/exercises/${own.id}").decode<train.core.Exercise>(200, "patch") }
+        assertNull(cleared.mediaKey)
+        assertEquals(404, api.status("/media/${b.mediaKey}.jpg"))
+    }
 }

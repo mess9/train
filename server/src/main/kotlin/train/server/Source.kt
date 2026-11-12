@@ -20,6 +20,7 @@ import train.core.TrainJson
 import java.nio.file.Files
 import java.util.Optional
 import java.nio.file.Paths
+import kotlin.io.path.inputStream
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.readText
 
@@ -42,7 +43,7 @@ class Source(@ConfigProperty(name = "train.source.path") path: Optional<String>)
     private val records: Map<String, SourceRecord> by lazy {
         val file = path.map { Paths.get(it) }.orElse(null)
         if (file == null || !file.isRegularFile()) {
-            log.warn("Источник упражнений не найден (train.source.path) — поиск по датасету пустой")
+            log.warn("Источник упражнений не найден (train.source.path) — поиск по датасету пустой; как подключить — docs/dataset.md")
             return@lazy emptyMap()
         }
         TrainJson.parseToJsonElement(file.readText()).jsonArray.map { parse(it.jsonObject) }
@@ -51,6 +52,9 @@ class Source(@ConfigProperty(name = "train.source.path") path: Optional<String>)
     }
 
     operator fun get(id: String): SourceRecord? = records[id]
+
+    /** Записей в датасете; 0 — не подключён. */
+    val size: Int get() = records.size
 
     fun search(q: String?, limit: Int = 50): List<SourceExercise> {
         val words = q.orEmpty().lowercase().split(' ').filter { it.isNotBlank() }
@@ -90,15 +94,23 @@ class SourceResource(private val source: Source) {
     fun get(@PathParam("id") id: String): SourceExercise = source[id]?.info ?: throw notFound()
 }
 
+/** Префикс `mediaKey` своей картинки упражнения (`PUT /api/exercises/{id}/media`). */
+const val OWN_MEDIA_PREFIX = "own-"
+
 /**
  * Медиа-пакет: `0001-2gPfomN.jpg` и `.gif` из датасета. Файлы ищутся в корне папки и в `images/`,
- * `videos/` — как лежат в датасете. Имена не меняются, поэтому кэш вечный.
+ * `videos/` — как лежат в датасете. Своя картинка `own-…` — один файл в хранилище фото: и на `.jpg`,
+ * и на `.gif` отдаётся он, с типом по содержимому. Имена не меняются, поэтому кэш вечный.
  */
 @Path("/media")
-class MediaResource(@ConfigProperty(name = "train.media.path") private val dir: Optional<String>) {
+class MediaResource(
+    @ConfigProperty(name = "train.media.path") private val dir: Optional<String>,
+    private val files: PhotoFiles,
+) {
     @GET
     @Path("{name}")
     fun get(@PathParam("name") name: String): Response {
+        OWN.matchEntire(name)?.let { return own(it.groupValues[1]) }
         val m = NAME.matchEntire(name) ?: throw notFound()
         val root = dir.map { Paths.get(it) }.orElse(null) ?: throw notFound()
         val sub = if (m.groupValues[1] == "jpg") "images" else "videos"
@@ -110,7 +122,17 @@ class MediaResource(@ConfigProperty(name = "train.media.path") private val dir: 
             .build()
     }
 
+    private fun own(key: String): Response {
+        val file = runCatching { files.exerciseMedia(key) }.getOrNull()?.takeIf { it.isRegularFile() } ?: throw notFound()
+        val type = file.inputStream().use { PhotoFiles.sniffMedia(it.readNBytes(16)) } ?: throw notFound()
+        return Response.ok(file.toFile(), type)
+            .header("Cache-Control", "private, max-age=31536000, immutable")
+            .header("Content-Length", Files.size(file))
+            .build()
+    }
+
     private companion object {
         val NAME = Regex("""\d{4}-[A-Za-z0-9]+\.(jpg|gif)""")
+        val OWN = Regex("""($OWN_MEDIA_PREFIX[a-z0-9]{12})\.(jpg|gif)""")
     }
 }
