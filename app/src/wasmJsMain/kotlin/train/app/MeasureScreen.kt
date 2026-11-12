@@ -177,8 +177,10 @@ private fun Loads(st: Stats) {
     BodyMap(st)
     val top = st.regions.filter { it.sets > 0 }.sortedByDescending { it.sets }.take(6)
     Txt(top.joinToString(" · ") { "${it.region.label()} ${sets(it.sets)}" }, ts(13.sp, C.Soft), Modifier.padding(top = 8.dp))
+    Txt("Каждая мышца отдельно, цвет — от самой нагруженной", T.small, Modifier.padding(top = 4.dp))
     Section("По частям тела")
     Rose(st)
+    Txt("Подход засчитан части тела один раз, сколько бы её мышц ни работало", T.small, Modifier.padding(top = 4.dp))
 }
 
 @Composable

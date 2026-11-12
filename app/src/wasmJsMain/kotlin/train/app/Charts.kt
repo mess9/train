@@ -230,9 +230,21 @@ fun BodyMap(stats: Stats, modifier: Modifier = Modifier) {
                     },
                     T.small,
                 )
+                // Часть тела из нескольких участков — её луч на розе: подход в ней один раз,
+                // и спина с тягами и поясницей в разных упражнениях больше любой своей мышцы
+                val g = r.group
+                if (BodyRegion.entries.count { it.group == g } > 1) Txt("· ${g.whole()} ${sets(stats.load(g))}", T.small)
             }
         }
     }
+}
+
+/** «Вся спина», «все ноги» — итог части тела рядом с её мышцей. */
+private fun BodyGroup.whole() = when (this) {
+    BodyGroup.CORE -> "весь кор"
+    BodyGroup.BACK -> "вся спина"
+    BodyGroup.ARMS, BodyGroup.LEGS -> "все ${label().lowercase()}"
+    else -> label().lowercase()
 }
 
 @Composable
