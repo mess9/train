@@ -75,6 +75,7 @@ fun History(app: AppState) {
 private fun HistoryCard(app: AppState, w: Workout) {
     val items = w.layout.blocks.flatMap { it.items }.filterNot { it.removed }
     val hearts = items.count { it.liked }
+    val dislikes = items.count { it.disliked }
     val weight = app.weightOf(w)
     val photos = app.progress.photos.count { it.workoutId == w.id }
     Surface(Modifier.fillMaxWidth().tap { app.go(Screen.HistoryDetail(w.id)) }, radius = 14.dp) {
@@ -86,6 +87,7 @@ private fun HistoryCard(app: AppState, w: Workout) {
                     w.minutes()?.let { IconText(Icon.Clock, "$it мин") }
                     IconText(Icon.Dumbbell, "${items.size} упр")
                     if (hearts > 0) IconText(Icon.Heart, "$hearts", iconColor = C.Heart, fill = true)
+                    if (dislikes > 0) IconText(Icon.Dislike, "$dislikes", iconColor = C.Dislike, fill = true)
                     weight?.let { IconText(Icon.Scale, num(it.value) + " кг") }
                     if (photos > 0) IconText(Icon.Camera, "$photos")
                     if (!w.comment.isNullOrBlank()) IconText(Icon.Note, "отзыв")
@@ -211,6 +213,7 @@ private fun ExerciseCard(app: AppState, item: ItemComparison, tint: Tint) {
                     }
                 }
                 if (item.liked) Ico(Icon.Heart, 22.dp, C.Heart, fill = true)
+                if (item.disliked) Ico(Icon.Dislike, 22.dp, C.Dislike, fill = true)
             }
             if (item.sets.isNotEmpty()) Gap(6.dp)
             item.sets.forEach { sc ->

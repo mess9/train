@@ -94,22 +94,55 @@
         } catch (e) {}
       }
       ['pointerdown', 'touchend', 'keydown'].forEach(t => window.addEventListener(t, unlockAudio, { capture: true, passive: true }));
+      // Сигнал — металлический щелчок затвора: «щёлк-дзынь». Удар — короткий шум через полосу
+      // 2–5 кГц, звон — негармоничные обертоны, как у стальной пластинки; быстро гаснут. Компрессор
+      // поднимает громкость почти до предела и не даёт сумме хрипеть
+      let master = null, hit = null;
+      function chain() {
+        if (master) return;
+        const comp = audio.createDynamicsCompressor();
+        comp.threshold.value = -18;
+        comp.knee.value = 6;
+        comp.ratio.value = 8;
+        comp.attack.value = 0.001;
+        comp.release.value = 0.12;
+        master = audio.createGain();
+        master.gain.value = 2.2;
+        master.connect(comp).connect(audio.destination);
+        const n = Math.floor(audio.sampleRate * 0.03);
+        hit = audio.createBuffer(1, n, audio.sampleRate);
+        const d = hit.getChannelData(0);
+        for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 4);
+      }
+      function clack(t, pitch, level) {
+        const src = audio.createBufferSource(), band = audio.createBiquadFilter(), hg = audio.createGain();
+        src.buffer = hit;
+        band.type = 'bandpass';
+        band.frequency.value = pitch * 1.6;
+        band.Q.value = 1.4;
+        hg.gain.value = 1.6 * level;
+        src.connect(band).connect(hg).connect(master);
+        src.start(t);
+        [[1, 0.5, 0.22], [2.76, 0.32, 0.14], [5.4, 0.2, 0.08], [8.93, 0.12, 0.05]].forEach(([k, a, len]) => {
+          const o = audio.createOscillator(), g = audio.createGain();
+          o.type = 'sine';
+          o.frequency.value = pitch * k;
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.exponentialRampToValueAtTime(a * level, t + 0.002);
+          g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+          o.connect(g).connect(master);
+          o.start(t);
+          o.stop(t + len + 0.02);
+        });
+      }
       function beep() {
         if (!audio) return;
         try {
           if (audio.state === 'suspended') audio.resume();
-          const t0 = audio.currentTime;
-          [0, 0.3].forEach(d => { // два коротких писка, как вибрация 200-100-200
-            const o = audio.createOscillator(), g = audio.createGain();
-            o.type = 'sine';
-            o.frequency.value = 880;
-            g.gain.setValueAtTime(0.0001, t0 + d);
-            g.gain.exponentialRampToValueAtTime(0.4, t0 + d + 0.01);
-            g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.2);
-            o.connect(g).connect(audio.destination);
-            o.start(t0 + d);
-            o.stop(t0 + d + 0.22);
-          });
+          chain();
+          const t0 = audio.currentTime + 0.02;
+          clack(t0, 1250, 0.8);       // взвод
+          clack(t0 + 0.09, 1900, 1);  // щелчок со звоном
         } catch (e) {}
       }
 

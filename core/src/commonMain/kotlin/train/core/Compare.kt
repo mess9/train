@@ -50,6 +50,8 @@ data class ItemComparison(
     /** Заметка плана к упражнению. */
     val note: String? = null,
     val sets: List<SetComparison>,
+    /** Дизлайк владельца: упражнение не понравилось. */
+    val disliked: Boolean = false,
 )
 
 @Serializable
@@ -145,7 +147,7 @@ fun compare(
             }
             ItemComparison(
                 item.id, item.exerciseId, name(item.exerciseId), item.replacedFrom, item.added, item.removed,
-                item.liked, item.comment, item.note, sets,
+                item.liked, item.comment, item.note, sets, item.disliked,
             )
         })
     }

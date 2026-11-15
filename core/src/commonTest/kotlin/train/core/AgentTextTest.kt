@@ -43,7 +43,7 @@ class AgentTextTest {
         val target = TargetSet(weight = 10.0, repsMin = 8, repsMax = 10, rir = 2)
         val w0 = item(warm, TargetSet(seconds = 60))
         val a = item(press, target, target.copy()).copy(liked = true, comment = "плечо ок", note = "локти 45°")
-        val c = item(row, TargetSet(weight = 20.0, repsMax = 10), TargetSet(weight = 20.0, repsMax = 10)).copy(replacedFrom = oldRow.id)
+        val c = item(row, TargetSet(weight = 20.0, repsMax = 10), TargetSet(weight = 20.0, repsMax = 10)).copy(replacedFrom = oldRow.id, disliked = true)
         val w = workout(block(w0, role = BlockRole.WARMUP), block(a, c).copy(title = "Круг"))
             .copy(finishedAt = T0 + 40.minutes, comment = "бодро", date = LocalDate(2026, 11, 3), planVersion = 4)
         val facts = listOf(
@@ -66,7 +66,7 @@ class AgentTextTest {
               Жим гантелей ♥: 10кг: 10✓ 9✓ +6✓ | цель 2× 10кг 8–10 r2 | было 8кг: 10✓
                 владелец: «плечо ок»
                 план: «локти 45°»
-              Тяга гантели (замена: вместо Тяга штанги): до замены 40кг: 10✓ · 20кг: — | цель 2× 20кг 10
+              Тяга гантели 👎 (замена: вместо Тяга штанги): до замены 40кг: 10✓ · 20кг: — | цель 2× 20кг 10
             """.trimIndent(),
             text,
         )

@@ -45,6 +45,8 @@ data class LayoutItem(
     val removed: Boolean = false,
     /** Сердечко владельца: упражнение очень понравилось. */
     val liked: Boolean = false,
+    /** Дизлайк владельца: упражнение не понравилось. С [liked] вместе не бывает. */
+    val disliked: Boolean = false,
     /** Заметка владельца к упражнению для агента. [note] — заметка плана, от агента. */
     val comment: String? = null,
 )

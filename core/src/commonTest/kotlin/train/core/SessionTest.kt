@@ -154,6 +154,17 @@ class SessionTest {
     }
 
     @Test
+    fun restoreOrderUndoesMoves() {
+        val start = started()
+        val before = start.order
+        val moved = start.move(circle.id, b.id, -1)
+        val back = moved.restoreOrder(before)
+        assertEquals(listOf(a.id, b.id), back.w.layout.blocks[1].items.map { it.id })
+        assertEquals(start.w.layout, back.w.layout)
+        assertEquals(start, start.restoreOrder(before), "без перестановки — без записи в очередь")
+    }
+
+    @Test
     fun recordTypeChangesOpenSetsOnly() {
         var s = started().rate(warm.id, warm.items[0].id, 1, Rating.EASY, T0).addSet(warm.id, warm.items[0].id)
         s = s.setRecordType(warm.id, warm.items[0].id, RecordType.REPS)

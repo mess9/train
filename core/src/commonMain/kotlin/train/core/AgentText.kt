@@ -12,7 +12,8 @@ import kotlin.uuid.Uuid
 const val AGENT_TEXT_LEGEND = """Оценки: ↑ легко, ✓ норма, ✕ тяжело, без значка — не оценено. — пропущен, + сверх плана.
 Подходы с одной нагрузкой — группой: «12кг: 10✓ 10✕ · 14кг: 8✓»; вес — одного снаряда, +5кг — доп. вес.
 Цель: «3× 12кг 8–10 r3» — три подхода, 8–10 повторов, запас 3. Σ — сумма повторов или секунд.
-Тренд лучшего подхода к прошлой тренировке: ▲ рост, = так же, ▼ спад."""
+Тренд лучшего подхода к прошлой тренировке: ▲ рост, = так же, ▼ спад.
+Отметки владельца у упражнения: ♥ очень понравилось, 👎 не понравилось."""
 
 internal fun num(d: Double): String {
     val r = round(d * 100) / 100
@@ -167,6 +168,7 @@ fun Comparison.toText(names: (Uuid) -> String? = { null }, planNotes: Boolean = 
 private fun StringBuilder.appendItem(item: ItemComparison, prev: PreviousResult?, names: (Uuid) -> String?, planNotes: Boolean) {
     val flags = listOfNotNull(
         "♥".takeIf { item.liked },
+        "👎".takeIf { item.disliked },
         "(на сторону)".takeIf { item.sets.any { it.fact?.perSide == true } },
         "(добавлено)".takeIf { item.added },
         "(убрано)".takeIf { item.removed },
@@ -234,7 +236,7 @@ private fun StringBuilder.appendSession(s: HistorySession, type: RecordType) {
     val line = listOfNotNull(
         renderSets(s.sets),
         total(s.sets),
-    ).joinToString(" ") + s.trend.mark() + (if (s.liked) " ♥" else "")
+    ).joinToString(" ") + s.trend.mark() + (if (s.liked) " ♥" else "") + (if (s.disliked) " 👎" else "")
     val target = s.targets.takeIf { it.isNotEmpty() }?.let { " | цель ${renderTargets(it)}" } ?: ""
     appendLine("  ${s.date.dm()} $line$target")
     s.comment?.let { appendLine("      владелец: ${quote(it)}") }

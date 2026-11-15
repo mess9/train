@@ -40,6 +40,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.PI
@@ -69,8 +71,11 @@ import train.core.finish
 import train.core.hasCooldown
 import train.core.itemComment
 import train.core.last
+import train.core.dislike
 import train.core.like
 import train.core.move
+import train.core.order
+import train.core.restoreOrder
 import train.core.rate
 import train.core.removeItem
 import train.core.removeSet
@@ -123,7 +128,19 @@ fun WorkoutScreen(app: AppState) {
     // Выполненные подходы, открытые для правки: строка снова с полями и оценками
     var editing by rememberSaveable(stateSaver = keysSaver) { mutableStateOf(setOf<String>()) }
     var reorder by rememberSaveable { mutableStateOf(false) }
+    // Порядок до перестановки — для «Отмены»; стрелки двигают сразу, «Закрепить» оставляет как есть
+    var orderBefore by remember { mutableStateOf<Map<Uuid, List<Uuid>>?>(null) }
     var sheet by remember { mutableStateOf<WSheet?>(null) }
+
+    fun endReorder(keep: Boolean) {
+        val before = orderBefore
+        if (!keep && before != null) {
+            haptic(Haptic.Undo)
+            app.act { restoreOrder(before) }
+        }
+        orderBefore = null
+        reorder = false
+    }
 
     // Сигнал конца отдыха и таймера — в Main.kt: он нужен и на «Технике»
     val rest = app.rest
@@ -165,54 +182,57 @@ fun WorkoutScreen(app: AppState) {
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(C.Field))
 
-            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, bottom = 28.dp)) {
-                if (reorder) {
-                    Row(
-                        Modifier.padding(top = 12.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.Field).padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Txt("Режим порядка", T.strong, Modifier.weight(1f))
-                        Txt("Готово", ts(color = C.Lime, weight = FontWeight.Bold), Modifier.clip(RoundedCornerShape(8.dp)).tap { reorder = false }.padding(4.dp))
-                    }
-                }
-                passes.forEachIndexed { i, bp ->
-                    val b = bp.block
-                    val title = blockTitle(b.role, b.title, i)
-                    val circuit = bp.passCount > 1 && bp.items.size > 1
-                    val sub = when {
-                        bp.items.isNotEmpty() && bp.finished -> "готово"
-                        circuit -> "× ${bp.passCount} · проход ${bp.currentPass} из ${bp.passCount}"
-                        else -> ""
-                    }
-                    BlockDivider(title, sub, tints[i], top = 14.dp, bottom = 8.dp)
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        bp.items.forEachIndexed { pos, item ->
-                            ExerciseCard(
-                                app, bp, item, tints[i],
-                                expanded = item.id in open && !reorder,
-                                reorder = reorder,
-                                first = pos == 0,
-                                last = pos == bp.items.lastIndex,
-                                editing = editing,
-                                onEdit = { key -> editing = if (key in editing) editing - key else editing + key },
-                                onToggle = { open = if (item.id in open) open - item.id else open + item.id },
-                                onMenu = { sheet = WSheet.Menu(b.id, item.id) },
-                                onRate = { row, r ->
-                                    editing = editing - rowKey(item, row.setNo)
-                                    rate(app, b, item, row, r)
-                                },
-                            )
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                // Снизу место под плашку «Закрепить»: стрелки последней карточки не под ней
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, bottom = if (reorder) 88.dp else 28.dp)) {
+                    if (reorder) {
+                        Row(
+                            Modifier.padding(top = 12.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.Field).padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Txt("Режим порядка: стрелки двигают упражнение в блоке", T.strong, Modifier.weight(1f))
                         }
-                        if (!reorder) DashedButton("+ упражнение в «$title»") { sheet = WSheet.Add(b.id, null) }
+                    }
+                    passes.forEachIndexed { i, bp ->
+                        val b = bp.block
+                        val title = blockTitle(b.role, b.title, i)
+                        val circuit = bp.passCount > 1 && bp.items.size > 1
+                        val sub = when {
+                            bp.items.isNotEmpty() && bp.finished -> "готово"
+                            circuit -> "× ${bp.passCount} · проход ${bp.currentPass} из ${bp.passCount}"
+                            else -> ""
+                        }
+                        BlockDivider(title, sub, tints[i], top = 14.dp, bottom = 8.dp)
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            bp.items.forEachIndexed { pos, item ->
+                                ExerciseCard(
+                                    app, bp, item, tints[i],
+                                    expanded = item.id in open && !reorder,
+                                    reorder = reorder,
+                                    first = pos == 0,
+                                    last = pos == bp.items.lastIndex,
+                                    editing = editing,
+                                    onEdit = { key -> editing = if (key in editing) editing - key else editing + key },
+                                    onToggle = { open = if (item.id in open) open - item.id else open + item.id },
+                                    onMenu = { sheet = WSheet.Menu(b.id, item.id) },
+                                    onRate = { row, r ->
+                                        editing = editing - rowKey(item, row.setNo)
+                                        rate(app, b, item, row, r)
+                                    },
+                                )
+                            }
+                            if (!reorder) DashedButton("+ упражнение в «$title»") { sheet = WSheet.Add(b.id, null) }
+                        }
+                    }
+                    if (!reorder) {
+                        // Незапланированное: ещё круг (встаёт перед заминкой) и заминка, если её нет в плане
+                        Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(Modifier.weight(1f)) { DashedButton("+ круг") { sheet = WSheet.NewBlock(BlockRole.MAIN) } }
+                            if (!s.hasCooldown) Box(Modifier.weight(1f)) { DashedButton("+ заминка") { sheet = WSheet.NewBlock(BlockRole.COOLDOWN) } }
+                        }
                     }
                 }
-                if (!reorder) {
-                    // Незапланированное: ещё круг (встаёт перед заминкой) и заминка, если её нет в плане
-                    Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(Modifier.weight(1f)) { DashedButton("+ круг") { sheet = WSheet.NewBlock(BlockRole.MAIN) } }
-                        if (!s.hasCooldown) Box(Modifier.weight(1f)) { DashedButton("+ заминка") { sheet = WSheet.NewBlock(BlockRole.COOLDOWN) } }
-                    }
-                }
+                if (reorder) ReorderBar(Modifier.align(Alignment.BottomEnd), onCancel = { endReorder(keep = false) }, onKeep = { endReorder(keep = true) })
             }
 
             if (rest != null) RestBar(app, rest, now)
@@ -232,7 +252,7 @@ fun WorkoutScreen(app: AppState) {
                             app, b, item,
                             expanded = item.id in open,
                             onClose = { sheet = it },
-                            onReorder = { reorder = true; sheet = null },
+                            onReorder = { orderBefore = app.session?.order; reorder = true; sheet = null },
                             onExpand = { on -> open = if (on) open + item.id else open - item.id },
                         )
                     }
@@ -363,6 +383,7 @@ private fun ExerciseCard(
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Txt(ex?.nameRu ?: "Упражнение не в справочнике", ts(15.sp, if (grey) C.Done else C.Text, FontWeight.SemiBold), Modifier.weight(1f, fill = false), maxLines = 1)
                         if (item.liked) Ico(Icon.Heart, 14.dp, C.Heart, 1.5f, fill = true)
+                        if (item.disliked) Ico(Icon.Dislike, 14.dp, C.Dislike, 1.5f, fill = true)
                     }
                     Txt(meta, ts(12.sp, if (grey) C.Done else C.Muted), maxLines = 1)
                     item.comment?.let {
@@ -382,8 +403,8 @@ private fun ExerciseCard(
                     }
                 }
                 if (reorder) {
-                    if (!first) IconBtn(Icon.Up, { app.act { move(bp.block.id, item.id, -1) } }, 34.dp, label = "Выше: ${ex?.nameRu.orEmpty()}") else Box(Modifier.size(34.dp))
-                    if (!last) IconBtn(Icon.Down, { app.act { move(bp.block.id, item.id, 1) } }, 34.dp, label = "Ниже: ${ex?.nameRu.orEmpty()}") else Box(Modifier.size(34.dp))
+                    if (!first) ArrowBtn(Icon.Up, "Выше: ${ex?.nameRu.orEmpty()}") { app.act { move(bp.block.id, item.id, -1) } } else Box(Modifier.size(34.dp))
+                    if (!last) ArrowBtn(Icon.Down, "Ниже: ${ex?.nameRu.orEmpty()}") { app.act { move(bp.block.id, item.id, 1) } } else Box(Modifier.size(34.dp))
                 } else {
                     IconBtn(Icon.More, onMenu, 34.dp, label = "Меню: ${ex?.nameRu.orEmpty()}")
                 }
@@ -649,6 +670,29 @@ private fun Pendulum(ms: Long, modifier: Modifier) {
     }
 }
 
+/** Стрелка порядка: в лаймовой плашке, чтобы в режиме порядка её было видно сразу. */
+@Composable
+private fun ArrowBtn(icon: Icon, label: String, onClick: () -> Unit) {
+    Box(
+        Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(C.NextBg).border(1.dp, C.NextLine, RoundedCornerShape(10.dp))
+            .tap(onClick).semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) { Ico(icon, 20.dp, C.Lime, 2.5f) }
+}
+
+/** Плашка режима порядка в правом нижнем углу: «Закрепить» — оставить, «Отмена» — вернуть как было. */
+@Composable
+private fun ReorderBar(modifier: Modifier, onCancel: () -> Unit, onKeep: () -> Unit) {
+    Row(
+        modifier.padding(12.dp).clip(RoundedCornerShape(18.dp)).background(C.Bar).border(1.dp, C.Border, RoundedCornerShape(18.dp)).padding(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Txt("Отмена", ts(14.sp, C.Muted, FontWeight.SemiBold), Modifier.clip(RoundedCornerShape(12.dp)).background(C.Field).tap(onCancel).padding(horizontal = 14.dp, vertical = 10.dp))
+        Btn("Закрепить", onKeep)
+    }
+}
+
 @Composable
 private fun MenuItem(label: String, color: Color = C.Text, onClick: () -> Unit) {
     Column(Modifier.fillMaxWidth().tap(onClick)) {
@@ -672,7 +716,9 @@ private fun MenuSheet(
     val complete = rows.isNotEmpty() && rows.all { it.done }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Txt(ex?.nameRu ?: "Упражнение", ts(17.sp, weight = FontWeight.Bold), Modifier.weight(1f))
-        // Сердечко — сразу в шапке меню: одно касание, лист остаётся открытым
+        // Сердечко и дизлайк — сразу в шапке меню: одно касание, лист остаётся открытым
+        IconBtn(Icon.Dislike, { likeHaptic(!item.disliked); app.act { dislike(b.id, item.id, !item.disliked) } }, 40.dp, if (item.disliked) C.Dislike else C.Muted, fill = item.disliked,
+            label = if (item.disliked) "Убрать дизлайк" else "Поставить дизлайк")
         IconBtn(Icon.Heart, { likeHaptic(!item.liked); app.act { like(b.id, item.id, !item.liked) } }, 40.dp, if (item.liked) C.Heart else C.Muted, fill = item.liked,
             label = if (item.liked) "Убрать сердечко" else "Поставить сердечко")
     }
@@ -684,6 +730,7 @@ private fun MenuSheet(
             }
         }
         MenuItem(if (item.liked) "Убрать сердечко" else "Очень понравилось") { likeHaptic(!item.liked); app.act { like(b.id, item.id, !item.liked) } }
+        MenuItem(if (item.disliked) "Убрать дизлайк" else "Не понравилось") { likeHaptic(!item.disliked); app.act { dislike(b.id, item.id, !item.disliked) } }
         MenuItem(if (item.comment == null) "Заметка к упражнению…" else "Изменить заметку…") { onClose(WSheet.Comment(b.id, item.id)) }
         MenuItem("Техника и мышцы") {
             onClose(null)

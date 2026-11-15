@@ -24,7 +24,7 @@ import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
-/** Пометки владельца к тренировке: сердечко, заметка, рост, день по часам телефона, замеры тренировки. */
+/** Пометки владельца к тренировке: сердечко, дизлайк, заметка, рост, день по часам телефона, замеры тренировки. */
 @QuarkusTest
 class WorkoutNotesTest {
     @Inject
@@ -57,6 +57,11 @@ class WorkoutNotesTest {
         val off = api.get<Comparison>("/api/workouts/${w.id}/compare").blocks.single().items.single()
         assertFalse(off.liked)
         assertNull(off.comment)
+
+        // Дизлайк доходит до тренировки и разбора
+        w = api.putWorkout(w.copy(layout = w.layout.copy(blocks = w.layout.blocks.map { b -> b.copy(items = b.items.map { it.copy(disliked = true) }) })), baseRev = 3)
+        assertTrue(api.get<WorkoutDetail>("/api/workouts/${w.id}").workout.layout.blocks.single().items.single().disliked)
+        assertTrue(api.get<Comparison>("/api/workouts/${w.id}/compare").blocks.single().items.single().disliked)
     }
 
     @Test

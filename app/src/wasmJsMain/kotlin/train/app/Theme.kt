@@ -104,6 +104,7 @@ object C {
     /** Удаление и «убрать»: красный, как «тяжело». */
     val Danger = Color(0xFFFF6B6B)
     val Heart = Color(0xFFFF5C8A)
+    val Dislike = Color(0xFFFF9F43)
     /** Выполненное: серый текст и фон карточки. */
     val Done = Color(0xFF6B7078)
     val DoneCard = Color(0xFF16171A)
@@ -209,6 +210,8 @@ enum class Icon(vararg val paths: String) {
     History(circle(12f, 12f, 8f), "M12 8v4l3 2"),
     Ruler("M3 16l13-13 5 5-13 13z", "M7 12l2 2", "M10 9l2 2", "M13 6l2 2"),
     Heart("M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"),
+    /** Палец вниз: манжета слева, кулак, большой палец вниз. */
+    Dislike("M3.5 4.5H7v9H3.5z", "M7 4.5h9.3a2 2 0 0 1 2 1.6l1.3 6.4a2 2 0 0 1-2 2.4H14l.8 3.4a2.2 2.2 0 0 1-4 1.6L7 13.5z"),
     Note("M5 19h4l10-10-4-4L5 15z", "M13.5 6.5l4 4"),
     Plus("M12 5v14", "M5 12h14"),
     Camera("M4 8h3l2-2.5h6L17 8h3v11H4z", circle(12f, 13f, 3.5f)),

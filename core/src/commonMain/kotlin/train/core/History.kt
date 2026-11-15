@@ -21,6 +21,7 @@ data class HistorySession(
     /** Целевые подходы строк, где сделаны подходы. */
     val targets: List<TargetSet> = emptyList(),
     val liked: Boolean = false,
+    val disliked: Boolean = false,
     /** Заметка владельца к упражнению. */
     val comment: String? = null,
     val bodyweightKg: Double? = null,
@@ -153,6 +154,7 @@ private fun session(
         sets = ordered,
         targets = items.flatMap { it.sets },
         liked = items.any { it.liked },
+        disliked = items.any { it.disliked },
         comment = items.mapNotNull { it.comment?.trim()?.takeIf(String::isNotEmpty) }.joinToString("\n").takeIf { it.isNotEmpty() },
         bodyweightKg = bw,
         best = scored?.first,

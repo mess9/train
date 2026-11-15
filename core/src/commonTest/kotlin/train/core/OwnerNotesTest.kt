@@ -42,6 +42,22 @@ class OwnerNotesTest {
     }
 
     @Test
+    fun dislikeAndLikeExcludeEachOther() {
+        var s = started().like(circle.id, a.id, true).dislike(circle.id, a.id, true)
+        assertTrue(s.item.disliked)
+        assertFalse(s.item.liked, "дизлайк снимает сердечко")
+        val ic = compare(s.workout!!, emptyList(), mapOf(press.id to press)).blocks.single().items.single()
+        assertTrue(ic.disliked)
+
+        s = s.like(circle.id, a.id, true)
+        assertTrue(s.item.liked)
+        assertFalse(s.item.disliked, "сердечко снимает дизлайк")
+        s = s.dislike(circle.id, a.id, true).dislike(circle.id, a.id, false)
+        assertFalse(s.item.disliked)
+        assertFalse(s.item.liked)
+    }
+
+    @Test
     fun likeWorksAfterFinish() {
         val s = started().finish(T0 + 30.minutes).like(circle.id, a.id, true)
         assertTrue(s.item.liked)

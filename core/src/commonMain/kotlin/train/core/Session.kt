@@ -159,6 +159,17 @@ fun Session.move(blockId: Uuid, itemId: Uuid, direction: Int): Session = layout(
     else b.copy(items = b.items.toMutableList().also { it[visible[pos].index] = other.value; it[other.index] = visible[pos].value })
 }
 
+/** Порядок упражнений по блокам: снимок до перестановки, чтобы её отменить ([restoreOrder]). */
+val Session.order: Map<Uuid, List<Uuid>> get() = active?.layout?.blocks?.associate { b -> b.id to b.items.map { it.id } }.orEmpty()
+
+/** Вернуть порядок из снимка [order]. Упражнения, которых в снимке нет, — в конце блока, как были. */
+fun Session.restoreOrder(order: Map<Uuid, List<Uuid>>): Session = order.entries.fold(this) { s, (blockId, ids) ->
+    s.layout(blockId) { b ->
+        val at = ids.withIndex().associate { it.value to it.index }
+        b.copy(items = b.items.sortedBy { at[it.id] ?: Int.MAX_VALUE })
+    }
+}
+
 /** Убрать из тренировки. Сделанные подходы остаются в факте. */
 fun Session.removeItem(blockId: Uuid, itemId: Uuid): Session = changeItem(blockId, itemId, { it.copy(removed = true) }) { it }
 
@@ -167,8 +178,13 @@ fun Session.finish(at: Instant): Session {
     return record(w.copy(finishedAt = at))
 }
 
-/** Сердечко упражнению. Можно и после завершения — на экране «Готово». */
-fun Session.like(blockId: Uuid, itemId: Uuid, liked: Boolean): Session = anyItem(blockId, itemId) { it.copy(liked = liked) }
+/** Сердечко упражнению; снимает дизлайк. Можно и после завершения — на экране «Готово». */
+fun Session.like(blockId: Uuid, itemId: Uuid, liked: Boolean): Session =
+    anyItem(blockId, itemId) { it.copy(liked = liked, disliked = it.disliked && !liked) }
+
+/** Дизлайк упражнению: не понравилось; снимает сердечко. Можно и после завершения. */
+fun Session.dislike(blockId: Uuid, itemId: Uuid, disliked: Boolean): Session =
+    anyItem(blockId, itemId) { it.copy(disliked = disliked, liked = it.liked && !disliked) }
 
 /** Заметка владельца к упражнению для агента; пустая — убрать. Можно и после завершения. */
 fun Session.itemComment(blockId: Uuid, itemId: Uuid, text: String): Session =

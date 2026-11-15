@@ -36,6 +36,7 @@ import train.core.bodyweightFor
 import train.core.close
 import train.core.comment
 import train.core.compare
+import train.core.dislike
 import train.core.like
 import train.core.newId
 import train.core.outcome
@@ -103,12 +104,14 @@ fun ItemOutcome.label(n: Int) = when (this) {
 fun OutcomeChips(c: Comparison) {
     val o = c.outcomes()
     val hearts = c.blocks.sumOf { b -> b.items.count { it.liked } }
+    val dislikes = c.blocks.sumOf { b -> b.items.count { it.disliked } }
     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         ItemOutcome.entries.forEach { k ->
             val n = o[k] ?: 0
             if (n > 0) Chip(k.icon(), "$n ${k.label(n)}", k.color())
         }
         if (hearts > 0) Chip(Icon.Heart, "$hearts", C.Heart, fill = true)
+        if (dislikes > 0) Chip(Icon.Dislike, "$dislikes", C.Dislike, fill = true)
     }
 }
 
@@ -170,12 +173,16 @@ fun Finish(app: AppState) {
         OutcomeChips(c)
 
         Section("Упражнения")
-        Txt("Сердечко — очень понравилось: агент чаще вернёт упражнение в план", T.small, Modifier.padding(bottom = 8.dp))
+        Txt("Сердечко — очень понравилось, агент чаще вернёт упражнение в план; палец вниз — не понравилось, заменит", T.small, Modifier.padding(bottom = 8.dp))
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             val tints = tints(c.blocks.map { it.role })
             c.blocks.forEachIndexed { bi, b ->
                 b.items.forEach { item ->
-                    FinishItem(app, item, tints[bi]) { likeHaptic(!item.liked); app.act { like(b.blockId, item.itemId, !item.liked) } }
+                    FinishItem(
+                        app, item, tints[bi],
+                        onLike = { likeHaptic(!item.liked); app.act { like(b.blockId, item.itemId, !item.liked) } },
+                        onDislike = { likeHaptic(!item.disliked); app.act { dislike(b.blockId, item.itemId, !item.disliked) } },
+                    )
                 }
             }
         }
@@ -215,7 +222,7 @@ fun Finish(app: AppState) {
 }
 
 @Composable
-private fun FinishItem(app: AppState, item: ItemComparison, tint: Tint, onLike: () -> Unit) {
+private fun FinishItem(app: AppState, item: ItemComparison, tint: Tint, onLike: () -> Unit, onDislike: () -> Unit) {
     val ex = app.exercise(item.exerciseId)
     val out = item.outcome
     val grey = out == ItemOutcome.SKIPPED || out == ItemOutcome.REMOVED
@@ -230,6 +237,8 @@ private fun FinishItem(app: AppState, item: ItemComparison, tint: Tint, onLike: 
                     item.sets.mapNotNull { it.fact }.forEach { RateDot(it.rating, 7.dp) }
                 }
             }
+            IconBtn(Icon.Dislike, onDislike, 40.dp, if (item.disliked) C.Dislike else C.Dash, fill = item.disliked, iconSize = 20.dp,
+                label = "Дизлайк: ${item.name ?: ex?.nameRu ?: "упражнение"}")
             IconBtn(Icon.Heart, onLike, 44.dp, if (item.liked) C.Heart else C.Dash, fill = item.liked, iconSize = 22.dp,
                 label = "Сердечко: ${item.name ?: ex?.nameRu ?: "упражнение"}")
         }
