@@ -12,7 +12,7 @@
     <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
     <uses-permission android:name="android.permission.health.READ_RESPIRATORY_RATE" />
     <uses-permission android:name="android.permission.health.READ_EXERCISE" />
-    <!-- Синхронизация раз в час без открытого приложения и история старше 30 дней -->
+    <!-- Синхронизация в фоне без открытого приложения и история старше 30 дней -->
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
 

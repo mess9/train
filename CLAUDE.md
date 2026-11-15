@@ -11,7 +11,7 @@
 - `.claude/skills/gym/` — правила агента-тренера, в клоне подхватывается сам. `SKILL.md` — план и
   разбор, темы — рядом: `catalog.md` (упражнения, картинки), `body.md` (замеры, фото), `admin.md`.
   Меняешь API планов, тренировок, справочника или замеров — сверь нужный файл.
-- `android/` — приложение на телефон: сон, пульс, шаги из Health Connect на сервер (ADR 0015);
+- `health-sync/` — Android-приложение на телефон: сон, пульс, шаги из Health Connect на сервер (ADR 0015);
   ночи и дни считает `core/.../Health.kt`, агенту — `gym health days` и раздел в `brief`.
 - `docs/dataset.md` — датасет упражнений (картинки, шаги): где взять, формат; в репо его нет.
 - UI-примитивы — `app/.../Theme.kt` (`Page`, `Surface`, `Btn`, `Txt`, `T`, `C`, `tap`, `haptic`).
@@ -54,10 +54,10 @@ skillshare, так что правка в репо = правка skill).
 - **В Jenkins только core, client, cli** — внутри `docker build --target test`. `server:test`
   там не идёт (нужен Docker в Docker): серверные тесты — локально, перед пушем. Коммит без
   файлов из `COPY` в `Dockerfile` (доки, `.claude/`, `docs/`) берёт сборку и тесты из кэша слоёв.
-- **Android**: `./gradlew :android:assembleDebug` → `android/build/outputs/apk/debug/`. Модуль
+- **Android**: `./gradlew :health-sync:assembleDebug` → `health-sync/build/outputs/apk/debug/`. Модуль
   включается, только если есть `ANDROID_HOME` или `local.properties`; в `Dockerfile` папку не
   копируют — Jenkins его не собирает. AGP 9 (Kotlin встроенный) объявлен в корне рядом с
-  Kotlin-плагином: из одного `android/build.gradle.kts` — «Could not create an instance of
+  Kotlin-плагином: из одного `health-sync/build.gradle.kts` — «Could not create an instance of
   KotlinAndroidTarget». Quarkus — только в `server/build.gradle.kts`: в корне он поднимает JAXB
   до 4, и AGP падает на `javax/xml/bind/annotation/XmlSchema`.
 - Выгрузка Health Connect (zip с SQLite) — недоверенный файл: отдельная пустая папка, Python

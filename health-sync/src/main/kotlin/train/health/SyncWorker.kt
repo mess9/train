@@ -18,7 +18,10 @@ import java.util.concurrent.TimeUnit
 private const val PERIODIC = "health-sync"
 private const val NOW = "health-sync-now"
 
-/** Синхронизация в фоне: раз в час при сети, плюс по кнопке. */
+// Сон пишется раз в сутки, шаги и пульс — к вечеру: трёх раз в сутки хватает
+private const val PERIOD_HOURS = 8L
+
+/** Синхронизация в фоне: раз в [PERIOD_HOURS] часов при сети, плюс по кнопке — свежие данные перед тренировкой. */
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val settings = Settings(applicationContext)
@@ -30,7 +33,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             settings.status = "$time · нет связи: ${e.message ?: e::class.simpleName}"
             Result.retry()
         } catch (e: Exception) {
-            // Нет настроек, разрешений, ответ сервера 4xx/5xx — повторит следующий час
+            // Нет настроек, разрешений, ответ сервера 4xx/5xx — повторит следующий запуск
             settings.status = "$time · ошибка: ${e.message ?: e::class.simpleName}"
             Result.failure()
         }
@@ -40,8 +43,8 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         private val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
         fun schedule(context: Context) {
-            val req = PeriodicWorkRequestBuilder<SyncWorker>(1, TimeUnit.HOURS).setConstraints(network).build()
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.KEEP, req)
+            val req = PeriodicWorkRequestBuilder<SyncWorker>(PERIOD_HOURS, TimeUnit.HOURS).setConstraints(network).build()
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, req)
         }
 
         fun now(context: Context) {

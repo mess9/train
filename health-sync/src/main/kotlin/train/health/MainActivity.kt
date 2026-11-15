@@ -24,7 +24,7 @@ private const val RATIONALE = """Приложение читает из Health C
 
 /**
  * Один экран: ссылка на сервер с ключом, сервисный токен Cloudflare, разрешения Health Connect,
- * синхронизация сейчас и итог последней. Дальше всё — в фоне, раз в час ([SyncWorker]).
+ * синхронизация сейчас и итог последней. Дальше — в фоне раз в 8 часов ([SyncWorker]), перед тренировкой — кнопкой.
  */
 class MainActivity : ComponentActivity() {
     private val scope = MainScope()
@@ -83,9 +83,9 @@ class MainActivity : ComponentActivity() {
         state = text("")
         col.addView(state)
         col.addView(button("Разрешения Health Connect") { askPermissions() })
-        col.addView(button("Синхронизировать сейчас") {
+        col.addView(button("Отправить сейчас") {
             SyncWorker.now(this)
-            status.text = "синхронизация поставлена в очередь…"
+            status.text = "отправка поставлена в очередь…"
         })
         status = text("")
         col.addView(status)
