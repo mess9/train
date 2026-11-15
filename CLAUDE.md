@@ -62,6 +62,9 @@ skillshare, так что правка в репо = правка skill).
   до 4, и AGP падает на `javax/xml/bind/annotation/XmlSchema`.
 - Выгрузка Health Connect (zip с SQLite) — недоверенный файл: отдельная пустая папка, Python
   `-I -X utf8` (`-I` игнорирует `PYTHONIOENCODING`). Личное из неё — только в scratchpad.
+  Сами выгрузки (Health Connect, архив Mi Fitness) хранятся в `import/health/` главной копии:
+  `/import/*/` в `.gitignore`, `import/` в `.dockerignore`. В worktree их нет. В архиве
+  Mi Fitness главное — `hlth_center_fitness_data.csv` (Key, Time, Value-JSON; `Sid` — браслет).
 - Превью: `preview_start` `server` (порт 7313, ключ `dev-key`). База каждый запуск пустая —
   упражнения и план заводить через API. JSON с кириллицей — в файл и `curl --data @file`:
   из аргументов Git Bash кириллица приходит битой.

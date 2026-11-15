@@ -9,3 +9,4 @@ docs/
 *.env
 *.iml
 local.properties
+import/
