@@ -82,34 +82,30 @@ class HealthSync(private val context: Context) {
                 saved += s
                 deleted += d
             }
-            return "отправлено $saved, удалено $deleted" + if (skipped.isEmpty()) "" else " · нет разрешения: ${skipped.joinToString()}"
+            return "отправлено $saved, удалено $deleted" +
+                (if (broken == 0) "" else " · пропущено битых записей: $broken") +
+                if (skipped.isEmpty()) "" else " · нет разрешения: ${skipped.joinToString()}"
         } finally {
             http.close()
         }
     }
 
+    /** Сколько интервалов по минуте пропущено из-за битых записей (см. [readRange]). */
+    private var broken = 0
+
     private suspend fun syncType(hc: HealthConnectClient, api: ApiClient, type: HealthType, cls: KClass<out Record>): Pair<Int, Int> {
-        val token = settings.token(type.name)
-        if (token == null) {
-            // Токен — до чтения: изменения во время выгрузки придут следующим разом
-            val next = hc.getChangesToken(ChangesTokenRequest(setOf(cls)))
-            val now = java.time.Instant.now()
-            val filter = TimeRangeFilter.between(now.minus(Duration.ofDays(BACKFILL_DAYS)), now)
-            var page: String? = null
-            var saved = 0
-            do {
-                val r = hc.readRecords(ReadRecordsRequest(cls, filter, pageSize = 1000, pageToken = page))
-                saved += upload(api, r.records.mapNotNull { it.toHealth() }, emptyList())
-                page = r.pageToken
-            } while (page != null)
-            settings.setToken(type.name, next)
-            return saved to 0
-        }
+        val token = settings.token(type.name) ?: return backfill(hc, api, type, cls, Duration.ofDays(BACKFILL_DAYS))
         var current: String = token
         var saved = 0
         var deleted = 0
         while (true) {
-            val r = hc.getChanges(current)
+            val r = try {
+                hc.getChanges(current)
+            } catch (_: IllegalArgumentException) {
+                // В изменениях битая запись — пропустить её поштучно нельзя. Перечитываем срок жизни
+                // токена по интервалам с новым токеном: она уже в прошлом и больше не придёт
+                return backfill(hc, api, type, cls, Duration.ofDays(30)).let { (s, d) -> (saved + s) to (deleted + d) }
+            }
             if (r.changesTokenExpired) {
                 // Токен живёт 30 дней: телефон долго был без сети — выгружаем заново, сервер не задвоит
                 settings.setToken(type.name, null)
@@ -124,6 +120,52 @@ class HealthSync(private val context: Context) {
             if (!r.hasMore) break
         }
         return saved to deleted
+    }
+
+    /** Все записи типа за [period] до сейчас, затем новый токен изменений. */
+    private suspend fun backfill(hc: HealthConnectClient, api: ApiClient, type: HealthType, cls: KClass<out Record>, period: Duration): Pair<Int, Int> {
+        // Токен — до чтения: изменения во время выгрузки придут следующим разом
+        val next = hc.getChangesToken(ChangesTokenRequest(setOf(cls)))
+        val now = java.time.Instant.now()
+        var saved = 0
+        readRange(hc, cls, now.minus(period), now) { saved += upload(api, it.mapNotNull { r -> r.toHealth() }, emptyList()) }
+        settings.setToken(type.name, next)
+        return saved to 0
+    }
+
+    /**
+     * Записи за [from]..[to] пачками в [sink]. Jetpack-библиотека не читает запись, у которой
+     * начало не раньше конца (такие пишет сам Android — шаги телефона), и роняет всю страницу.
+     * Тогда интервал делится пополам, пока битая не останется одна в минуте, — эта минута
+     * пропускается. Пачку отдаём, только когда интервал прочитан целиком: без повторов.
+     */
+    private suspend fun readRange(
+        hc: HealthConnectClient,
+        cls: KClass<out Record>,
+        from: java.time.Instant,
+        to: java.time.Instant,
+        sink: suspend (List<Record>) -> Unit,
+    ) {
+        val records = try {
+            buildList<Record> {
+                var page: String? = null
+                do {
+                    val r = hc.readRecords(ReadRecordsRequest(cls, TimeRangeFilter.between(from, to), pageSize = 1000, pageToken = page))
+                    addAll(r.records)
+                    page = r.pageToken
+                } while (page != null)
+            }
+        } catch (_: IllegalArgumentException) {
+            if (Duration.between(from, to) <= Duration.ofMinutes(1)) {
+                broken++
+                return
+            }
+            val mid = from.plus(Duration.between(from, to).dividedBy(2))
+            readRange(hc, cls, from, mid, sink)
+            readRange(hc, cls, mid, to, sink)
+            return
+        }
+        records.chunked(1000).forEach { sink(it) }
     }
 
     private suspend fun upload(api: ApiClient, records: List<HealthRecord>, deleted: List<String>): Int {
