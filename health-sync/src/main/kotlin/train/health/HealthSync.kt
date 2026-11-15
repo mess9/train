@@ -27,8 +27,12 @@ import train.core.SleepStage
 import train.core.SleepStageType
 import java.time.Duration
 import java.time.ZoneOffset
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.reflect.KClass
 import kotlin.time.Instant
+
+private val running = Mutex()
 
 /** Записей в одном запросе на сервер: пульс тренировки — тысячи точек на запись. */
 private const val UPLOAD_CHUNK = 200
@@ -61,8 +65,13 @@ val SYNC_PERMISSIONS: Set<String> = SYNC_TYPES.values.map { HealthPermission.get
 class HealthSync(private val context: Context) {
     private val settings = Settings(context)
 
-    /** Итог одной строкой; ошибка сети или сервера — исключение, WorkManager повторит. */
-    suspend fun run(): String {
+    /**
+     * Итог одной строкой; ошибка сети или сервера — исключение, WorkManager повторит. Запуски по
+     * кнопке и по расписанию идут по очереди: иначе оба выгружают одно и то же.
+     */
+    suspend fun run(): String = running.withLock { sync() }
+
+    private suspend fun sync(): String {
         check(settings.configured) { "не задан сервер: вставьте ссылку …/#key=…" }
         check(HealthConnectClient.getSdkStatus(context) == HealthConnectClient.SDK_AVAILABLE) { "Health Connect недоступен" }
         val hc = HealthConnectClient.getOrCreate(context)
@@ -78,6 +87,8 @@ class HealthSync(private val context: Context) {
                     skipped += type.name.lowercase()
                     continue
                 }
+                // Первая выгрузка — минуты: экран показывает, на каком типе она сейчас
+                settings.status = "идёт отправка: ${type.name.lowercase()}, отправлено $saved"
                 val (s, d) = syncType(hc, api, type, cls)
                 saved += s
                 deleted += d

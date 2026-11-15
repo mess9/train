@@ -12,6 +12,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import train.client.ApiException
 import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import java.text.DateFormat
 import java.util.Date
 import java.util.concurrent.TimeUnit
@@ -30,6 +31,11 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         return try {
             settings.status = "$time · ${HealthSync(applicationContext).run()}"
             Result.success()
+        } catch (e: CancellationException) {
+            // Android остановил задачу (новое нажатие, экономия батареи): готовые типы сохранены,
+            // следующий запуск продолжит с того, на котором остановились
+            settings.status = "$time · прервано системой — продолжит при следующем запуске или по кнопке"
+            throw e
         } catch (e: IOException) {
             settings.status = "$time · нет связи: ${e.message ?: e::class.simpleName}"
             Result.retry()
