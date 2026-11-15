@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import train.client.ApiException
 import java.io.IOException
 import java.text.DateFormat
 import java.util.Date
@@ -32,6 +33,13 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         } catch (e: IOException) {
             settings.status = "$time · нет связи: ${e.message ?: e::class.simpleName}"
             Result.retry()
+        } catch (e: ApiException) {
+            settings.status = "$time · " + when (e.status) {
+                401 -> "сервер не принял ключ — вставьте новую ссылку"
+                404 -> "на сервере нет /api/health — он ещё не обновлён"
+                else -> "сервер ответил ${e.status}: ${e.message.orEmpty().take(200)}"
+            }
+            Result.failure()
         } catch (e: Exception) {
             // Нет настроек, разрешений, ответ сервера 4xx/5xx — повторит следующий запуск
             settings.status = "$time · ошибка: ${e.message ?: e::class.simpleName}"
