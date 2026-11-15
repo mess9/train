@@ -17,6 +17,11 @@ import kotlinx.datetime.LocalDate
 import kotlinx.serialization.builtins.ListSerializer
 import train.core.Comparison
 import train.core.Exercise
+import train.core.HealthDay
+import train.core.HealthExcluded
+import train.core.HealthExclusion
+import train.core.HealthExclusionCreate
+import train.core.HealthReport
 import train.core.ExerciseHistory
 import train.core.JournalEntry
 import train.core.JournalPut
@@ -145,17 +150,40 @@ class AgentCliTest {
         }
         assertEquals(0, r.statusCode, r.stderr)
         assertTrue(r.stdout.startsWith("## профиль\nоборудование: гантели до 15 кг\n\n## планы\n—"), r.stdout)
+        // Старый сервер без /health — раздел есть, brief не падает
+        assertTrue("## сон и восстановление за 28 дн.\nсервер не отдал данные сна" in r.stdout, r.stdout)
         for (s in listOf("## журнал", "## недели", "## тренировки: последняя и неразобранные", "## история упражнений программы за 30 дн.")) {
             assertTrue(s in r.stdout, s)
         }
         assertEquals(
-            listOf("/api/profile", "/api/plans", "/api/journal", "/api/journal", "/api/stats/weeks", "/api/workouts", "/api/history"),
+            listOf("/api/profile", "/api/plans", "/api/journal", "/api/journal", "/api/stats/weeks", "/api/workouts", "/api/history", "/api/health"),
             requests.map { it.url.encodedPath },
         )
         val (active, recent) = requests.filter { it.url.encodedPath == "/api/journal" }
         assertEquals("true", active.url.parameters["active"])
         assertEquals(null, active.url.parameters["from"])
         assertTrue(recent.url.parameters["from"] != null)
-        assertTrue(requests.last().url.parameters["since"] != null)
+        assertTrue(requests.single { it.url.encodedPath == "/api/history" }.url.parameters["since"] != null)
+    }
+
+    @Test
+    fun healthDaysAndExclude() {
+        val day = HealthDay(LocalDate(2026, 11, 15), steps = 1062)
+        val report = HealthReport(LocalDate(2026, 11, 2), LocalDate(2026, 11, 15), listOf(day), sources = listOf("com.xiaomi.wearable"))
+        val r = run("health", "days", "--to", "2026-11-15") { TrainJson.encodeToString(HealthReport.serializer(), report) }
+        assertEquals(0, r.statusCode, r.stderr)
+        assertEquals("2026-11-02", requests.single().url.parameters["from"])
+        assertTrue(r.stdout.endsWith("15.11 вс шаги 1062\n"), r.stdout)
+
+        requests.clear()
+        val ex = HealthExclusion(newId(), LocalDate(2026, 3, 1), LocalDate(2026, 3, 10), "band.app", "заметка")
+        val x = run("health", "exclude", "--from", "2026-03-01", "--to", "2026-03-10", "--source", "band.app", "--note", "заметка") {
+            TrainJson.encodeToString(HealthExcluded.serializer(), HealthExcluded(ex, 120))
+        }
+        assertEquals(0, x.statusCode, x.stderr)
+        assertEquals(HttpMethod.Post, requests.single().method)
+        val body = TrainJson.decodeFromString(HealthExclusionCreate.serializer(), (requests.single().body as TextContent).text)
+        assertEquals(HealthExclusionCreate(ex.from, ex.to, ex.source, ex.note), body)
+        assertEquals("исключено 01.03.2026–10.03.2026, удалено записей: 120 · id ${ex.id}\n", x.stdout)
     }
 }

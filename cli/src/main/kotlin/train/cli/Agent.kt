@@ -17,6 +17,7 @@ import kotlinx.datetime.todayIn
 import train.client.ApiClient
 import train.core.AGENT_TEXT_LEGEND
 import train.core.Comparison
+import train.core.HealthExclusionCreate
 import train.core.JournalEntry
 import train.core.JournalPut
 import train.core.Workout
@@ -87,6 +88,57 @@ class WeeksCmd : TextCommand("weeks", "Недели с понедельника:
 }
 
 
+// Сон, пульс, шаги с телефона (ADR 0015)
+
+class HealthDays : TextCommand(
+    "days",
+    "Сон, пульс ночью, SpO2, шаги по дням: итог последней недели против остальных дней, дни новые сначала. " +
+        "Ночь дня — сон, закончившийся этим утром",
+) {
+    private val from by option("--from").date()
+    private val to by option("--to", help = "по умолчанию сегодня").date()
+    private val days by option("--days", help = "сколько дней, если нет --from; по умолчанию 14").int().restrictTo(1, 366).default(14)
+
+    override suspend fun exec() {
+        val end = to ?: today()
+        val r = api.health(from ?: end.minus(DatePeriod(days = days - 1)), end)
+        if (json) out(r) else echo(r.toText())
+    }
+}
+
+class HealthExclude : TextCommand(
+    "exclude",
+    "Исключить дни: данные не владельца (браслет носил другой). Сохранённые записи удаляются, новые не принимаются",
+) {
+    private val from by option("--from").date().required()
+    private val to by option("--to").date().required()
+    private val source by option("--source", help = "только этот источник, например com.xiaomi.wearable; по умолчанию все")
+    private val note by option("--note", help = "почему")
+
+    override suspend fun exec() {
+        val r = api.excludeHealth(HealthExclusionCreate(from, to, source, note))
+        if (json) out(r) else echo("исключено ${r.exclusion.from.dmy()}–${r.exclusion.to.dmy()}, удалено записей: ${r.removed} · id ${r.exclusion.id}")
+    }
+}
+
+class HealthExclusions : TextCommand("exclusions", "Исключённые дни") {
+    override suspend fun exec() {
+        val list = api.healthExclusions()
+        if (json) out(list) else echo(
+            list.joinToString("\n") { e ->
+                "${e.from.dmy()}–${e.to.dmy()} ${e.source ?: "все источники"}${e.note?.let { ": $it" } ?: ""} · id ${e.id}"
+            }.ifEmpty { "исключений нет" },
+        )
+    }
+}
+
+class HealthUnexclude : ApiCommand("unexclude", "Снять исключение; удалённые записи вернёт только повторная отправка с телефона") {
+    private val id by argument("id").uuid()
+    override suspend fun exec() {
+        api.deleteHealthExclusion(id)
+    }
+}
+
 // Журнал тренера
 
 class JournalAdd : TextCommand(
@@ -142,15 +194,19 @@ class JournalRestore : TextCommand("restore", "Вернуть запись жу�
     }
 }
 
+/** Сон в `brief`: итог за столько дней, построчно — последние [BRIEF_HEALTH_LINES]. */
+private const val BRIEF_HEALTH_DAYS = 28
+private const val BRIEF_HEALTH_LINES = 10
+
 /** Сколько неразобранных тренировок, кроме последней, `brief` показывает целиком. */
 private const val BRIEF_UNREVIEWED = 2
 
 /**
  * Всё для плана и разбора за один вызов, окно — [days] дней (по умолчанию месяц): профиль, планы,
- * журнал (действующие решения любой давности и все записи окна), недели, последняя тренировка и
+ * журнал (действующие решения любой давности и все записи окна), недели, сон за 4 недели, последняя тренировка и
  * неразобранные — те, на которые нет записи журнала, — и история упражнений программы.
  */
-class BriefCmd : ApiCommand("brief", "Сводка для агента перед планом или разбором: профиль, планы, журнал, недели, тренировки, история") {
+class BriefCmd : ApiCommand("brief", "Сводка для агента перед планом или разбором: профиль, планы, журнал, недели, сон, тренировки, история") {
     private val days by option("--days", help = "окно журнала, тренировок и истории, по умолчанию 30").int().restrictTo(1, 365).default(30)
     private val weeks by option("--weeks", help = "сколько недель, по умолчанию 8").int().restrictTo(1, 104).default(8)
 
@@ -169,6 +225,8 @@ class BriefCmd : ApiCommand("brief", "Сводка для агента пере�
         val unreviewed = workouts.drop(1).filter { it.id !in reviewed }
         val history = api.history(since = since)
         val names = names(api, entries.flatMap { it.exerciseIds })
+        // Сервер без /health (ещё не обновлён) — раздел пустой, brief работает
+        val health = runCatching { api.health(today.minus(DatePeriod(days = BRIEF_HEALTH_DAYS - 1)), today) }.getOrNull()
 
         suspend fun workout(w: Workout): String {
             val mark = if (w.id in reviewed) "" else " · не разобрана"
@@ -186,6 +244,7 @@ class BriefCmd : ApiCommand("brief", "Сводка для агента пере�
             },
             "## журнал: действующие решения и записи за $days дн." to entries.toText { names[it] },
             "## недели" to ws.toText(),
+            "## сон и восстановление за $BRIEF_HEALTH_DAYS дн." to (health?.toText(lines = BRIEF_HEALTH_LINES) ?: "сервер не отдал данные сна"),
             "## тренировки: последняя и неразобранные" to buildList {
                 workouts.firstOrNull()?.let { add(workout(it)) }
                 unreviewed.take(BRIEF_UNREVIEWED).forEach { add(workout(it)) }

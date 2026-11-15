@@ -107,6 +107,7 @@ fun gym(http: (() -> HttpClient)? = null): Gym = (http?.let(::Gym) ?: Gym()).sub
     WeeksCmd(),
     BriefCmd(),
     Group("journal", "Журнал тренера: решения по тренировкам, планам, упражнениям").subcommands(JournalAdd(), JournalList(), JournalRm(), JournalRestore()),
+    Group("health", "Сон, пульс, шаги с браслета через Health Connect").subcommands(HealthDays(), HealthExclude(), HealthExclusions(), HealthUnexclude()),
     ImportCmd(),
     Group("exercise", "Справочник упражнений и поиск по датасету").subcommands(
         ExerciseList(), ExerciseGet(), ExerciseSearch(), ExerciseAdd(), ExerciseEdit(), ExerciseMedia(), ExerciseImage(), ExerciseLast(),

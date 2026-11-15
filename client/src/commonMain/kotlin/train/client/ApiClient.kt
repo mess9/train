@@ -26,6 +26,12 @@ import train.core.Exercise
 import train.core.ExerciseCreate
 import train.core.ExerciseHistory
 import train.core.ExercisePatch
+import train.core.HealthExcluded
+import train.core.HealthExclusion
+import train.core.HealthExclusionCreate
+import train.core.HealthReport
+import train.core.HealthUpload
+import train.core.HealthUploaded
 import train.core.JournalEntry
 import train.core.JournalPut
 import train.core.KeyCreate
@@ -175,6 +181,22 @@ class ApiClient(
     suspend fun deleteJournal(id: Uuid) = call(HttpMethod.Delete, "/journal/$id")
 
     suspend fun restoreJournal(id: Uuid): JournalEntry = send(HttpMethod.Post, "/journal/$id/restore", null as String?)
+
+    // Сон, пульс, шаги с телефона (ADR 0015)
+
+    /** Новые и изменённые записи Health Connect, ID удалённых. Повтор пачки ничего не меняет. */
+    suspend fun uploadHealth(body: HealthUpload): HealthUploaded = send(HttpMethod.Post, "/health/records", body)
+
+    /** Дни подряд, старые сначала. Без дат — последние 14 дней. */
+    suspend fun health(from: LocalDate? = null, to: LocalDate? = null): HealthReport =
+        get("/health" + query("from" to from?.toString(), "to" to to?.toString()))
+
+    suspend fun healthExclusions(): List<HealthExclusion> = get("/health/exclusions")
+
+    /** Исключить дни: сохранённые записи удаляются, новые не принимаются. */
+    suspend fun excludeHealth(body: HealthExclusionCreate): HealthExcluded = send(HttpMethod.Post, "/health/exclusions", body)
+
+    suspend fun deleteHealthExclusion(id: Uuid) = call(HttpMethod.Delete, "/health/exclusions/$id")
 
     // Замеры, профиль, корзина
 

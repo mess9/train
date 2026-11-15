@@ -11,6 +11,10 @@ kotlinx-browser = "0.5.0"
 slf4j = "2.0.19"
 qrcodegen = "1.8.0"
 jna = "5.14.0"
+agp = "9.5.1"
+health-connect = "1.1.0"
+work = "2.12.0"
+activity = "1.10.1"
 
 [libraries]
 serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
@@ -19,6 +23,7 @@ datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "d
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 ktor-client-js = { module = "io.ktor:ktor-client-js", version.ref = "ktor" }
 ktor-client-java = { module = "io.ktor:ktor-client-java", version.ref = "ktor" }
+ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
 clikt = { module = "com.github.ajalt.clikt:clikt", version.ref = "clikt" }
 slf4j-nop = { module = "org.slf4j:slf4j-nop", version.ref = "slf4j" }
 qrcodegen = { module = "io.nayuki:qrcodegen", version.ref = "qrcodegen" }
@@ -29,6 +34,11 @@ kotlinx-browser = { module = "org.jetbrains.kotlinx:kotlinx-browser", version.re
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose" }
 compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose" }
 compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose" }
+
+# Android-приложение синхронизации (android/)
+health-connect = { module = "androidx.health.connect:connect-client", version.ref = "health-connect" }
+work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
+activity = { module = "androidx.activity:activity-ktx", version.ref = "activity" }
 
 # Версии расширений Quarkus — из BOM
 quarkus-bom = { module = "io.quarkus.platform:quarkus-bom", version.ref = "quarkus" }
@@ -51,3 +61,4 @@ kotlin-allopen = { id = "org.jetbrains.kotlin.plugin.allopen", version.ref = "ko
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 compose = { id = "org.jetbrains.compose", version.ref = "compose" }
 quarkus = { id = "io.quarkus", version.ref = "quarkus" }
+android-application = { id = "com.android.application", version.ref = "agp" }
