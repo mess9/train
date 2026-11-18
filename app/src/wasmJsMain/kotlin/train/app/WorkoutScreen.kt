@@ -52,6 +52,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
+import kotlinx.coroutines.delay
 import train.core.BlockPasses
 import train.core.BlockRole
 import train.core.Exercise
@@ -115,6 +116,9 @@ private fun rowKey(item: LayoutItem, setNo: Int) = "${item.id}-$setNo"
 /** Подходов в круге, который добавлен на ходу: как обычно в планах. */
 private const val EXTRA_PASSES = 3
 
+/** Сколько в круге видна строка подхода, отметка которого закрыла проход. */
+private const val RATED_HOLD_MS = 2000L
+
 @Composable
 fun WorkoutScreen(app: AppState) {
     val s = app.session
@@ -154,6 +158,15 @@ fun WorkoutScreen(app: AppState) {
 
     val passes = s.passes()
     val tints = tints(w.layout.blocks.map { it.role })
+
+    // В круге отмеченный подход, закрывший проход, держится над следующим недолго — видно, что
+    // отметка прошла, — и карточка сворачивается, как остальные: на экране только текущий проход
+    val justRated = app.justRated
+    LaunchedEffect(justRated) {
+        if (justRated == null || passes.none { bp -> bp.circuit && bp.items.any { it.id == justRated.first } }) return@LaunchedEffect
+        delay(RATED_HOLD_MS)
+        if (app.justRated == justRated) app.justRated = null
+    }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
