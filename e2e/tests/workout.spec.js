@@ -210,7 +210,7 @@ test('агент: compare и workout get видят всё сделанное', 
     return Boolean(w?.finishedAt && w?.comment);
   }, { timeout: 60_000, intervals: [1000] }).toBe(true);
 
-  const c = gym('compare', workoutId);
+  const c = gym('compare', workoutId, '--json');
   expect(c.comment).toBe('Круг зашёл, гоблет тяжело');
   expect(c.date).toBe(today());
   expect(c.heightCm).toBe(181);

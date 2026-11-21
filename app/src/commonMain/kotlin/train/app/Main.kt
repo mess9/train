@@ -20,25 +20,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.ComposeViewport
-import kotlinx.browser.document
 import kotlinx.coroutines.delay
 import train.client.Link
 import train.core.TRAIN_VERSION
 import kotlin.time.Clock
 import kotlin.time.Instant
-
-@OptIn(ExperimentalComposeUiApi::class)
-fun main() {
-    ComposeViewport(document.body!!) { Root() }
-}
 
 @Composable
 fun Root() {
@@ -269,7 +261,7 @@ private fun Settings(app: AppState) {
         Btn("Сменить ключ", { app.connect(key); key = "" }, Modifier.fillMaxWidth(), Kind.Ghost, enabled = key.isNotBlank())
 
         Section("Проверка")
-        CheckRow("Пауза отправки", "Отметки копятся в очереди и не уходят на сервер", app.paused) { app.setPaused(!app.paused) }
+        CheckRow("Пауза отправки", "Отметки копятся в очереди и не уходят на сервер", app.paused) { app.pauseSending(!app.paused) }
     }
 }
 

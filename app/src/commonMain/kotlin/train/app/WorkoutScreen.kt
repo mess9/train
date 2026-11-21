@@ -549,7 +549,7 @@ private fun RowScope.RateBtn(r: Rating, on: Boolean, onClick: () -> Unit) {
         Modifier.weight(1f).widthIn(max = 56.dp).height(40.dp).clip(shape)
             .background(if (on) r.color() else r.dim())
             .then(if (on) Modifier else Modifier.border(1.dp, r.color().copy(alpha = 0.35f), shape))
-            .tap(onClick),
+            .tap(onClick).semantics { contentDescription = r.label() },
         contentAlignment = Alignment.Center,
     ) {
         Ico(r.icon(), 20.dp, if (on) r.onColor() else r.color(), stroke = 2.6f)

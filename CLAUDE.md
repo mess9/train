@@ -14,7 +14,11 @@
 - `health-sync/` — Android-приложение на телефон: сон, пульс, шаги из Health Connect на сервер (ADR 0015);
   ночи и дни считает `core/.../Health.kt`, агенту — `gym health days` и раздел в `brief`.
 - `docs/dataset.md` — датасет упражнений (картинки, шаги): где взять, формат; в репо его нет.
-- UI-примитивы — `app/.../Theme.kt` (`Page`, `Surface`, `Btn`, `Txt`, `T`, `C`, `tap`, `haptic`).
+- UI-примитивы — `app/.../Theme.kt` (`Page`, `Surface`, `Btn`, `Txt`, `T`, `C`, `tap`; `haptic` — в `Platform.kt`).
+- `app` — общий код PWA и будущего APK (`docs/PLAN-android.md`): экраны и `AppState` в
+  `commonMain`, браузер и система — только через `expect` в `Platform.kt`. PWA — `wasmJsMain`
+  (`Bridge.kt` — `actual` поверх `window.bridge` из `index.html`, вход — `WebMain.kt`),
+  Android — `androidMain/Platform.android.kt` (пока заглушки).
 
 ## Тренировки владельца
 
@@ -51,8 +55,11 @@ skillshare, так что правка в репо = правка skill).
   Services). Демона нет — `Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"`
   и ждать `docker info`.
 - Тесты: `./gradlew :core:jvmTest :client:jvmTest :cli:test`, сервер — `:server:test --tests …`,
-  приложение — `:app:compileKotlinWasmJs`. Итог читать по `BUILD`/`^e:` или по XML в
+  приложение — `:app:compileKotlinWasmJs :app:compileAndroidMain`. Итог читать по `BUILD`/`^e:` или по XML в
   `*/build/test-results`: с `-q` вывод пустой и при успехе, и без прогона.
+- Общий код `app` собирать под оба таргета: JVM ловит то, что wasm пропускает. Пример —
+  `var paused` с `private set` рядом с `fun setPaused(…)`: «Platform declaration clash» только в
+  `compileAndroidMain`.
 - **В Jenkins только core, client, cli** — внутри `docker build --target test`. `server:test`
   там не идёт (нужен Docker в Docker): серверные тесты — локально, перед пушем. Коммит без
   файлов из `COPY` в `Dockerfile` (доки, `.claude/`, `docs/`) берёт сборку и тесты из кэша слоёв.
@@ -62,6 +69,11 @@ skillshare, так что правка в репо = правка skill).
   Kotlin-плагином: из одного `health-sync/build.gradle.kts` — «Could not create an instance of
   KotlinAndroidTarget». Quarkus — только в `server/build.gradle.kts`: в корне он поднимает JAXB
   до 4, и AGP падает на `javax/xml/bind/annotation/XmlSchema`.
+- У `app` Android-таргет (`com.android.kotlin.multiplatform.library`), а в Docker-сборке SDK нет, и
+  это нормально: AGP настраивает модуль без SDK, падает только Android-задача. Серверу и
+  `server:appDist` нужен лишь wasm.
+- e2e находит кнопку-пиктограмму по `contentDescription` (`aria-label`, в `lib.js` — `label`), а
+  не по тексту. Без подписи кнопку не найти ни тесту, ни TalkBack, ни будущему драйверу Android.
 - Выгрузка Health Connect (zip с SQLite) — недоверенный файл: отдельная пустая папка, Python
   `-I -X utf8` (`-I` игнорирует `PYTHONIOENCODING`). Личное из неё — только в scratchpad.
   Сами выгрузки (Health Connect, архив Mi Fitness) хранятся в `import/health/` главной копии:

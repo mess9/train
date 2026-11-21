@@ -5,11 +5,6 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.toComposeImageBitmap
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.js.Js
-import kotlinx.browser.document
-import kotlinx.browser.window
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
@@ -21,7 +16,6 @@ import kotlinx.datetime.offsetAt
 import kotlinx.datetime.minus
 import kotlinx.datetime.plus
 import kotlinx.serialization.Serializable
-import org.jetbrains.skia.Image
 import train.client.ApiClient
 import train.client.Link
 import train.client.PutResult
@@ -101,15 +95,15 @@ const val CACHE_KEY = "cache"
 const val PAUSE_KEY = "pause"
 
 class AppState(private val scope: CoroutineScope) {
-    private val storage = LocalStorage
-    private val http = HttpClient(Js) { followRedirects = false }
+    private val storage = DeviceStorage
+    private val http = httpClient()
 
     var key by mutableStateOf(storage.read(KEY_KEY))
         private set
-    val api = ApiClient(http, window.location.origin, key)
+    val api = ApiClient(http, serverOrigin(), key)
 
     /** Клиент с этим ключом: ответ точно относится к нему, даже если ключ тем временем сменили. */
-    private fun client(k: String) = ApiClient(http, window.location.origin, k)
+    private fun client(k: String) = ApiClient(http, serverOrigin(), k)
 
     /** Ключ и его пользователь, подтверждённый `/me` в этом запуске: до этого очередь не уходит. */
     private var owner: Pair<String, Uuid>? = null
@@ -152,11 +146,10 @@ class AppState(private val scope: CoroutineScope) {
 
     private val depth get() = stack.size - 1
 
-    private fun historyDepth(): Int = (window.history.state as? JsNumber)?.toInt() ?: 0
 
     fun go(s: Screen) {
         stack = stack + s
-        window.history.pushState(depth.toJsNumber(), "")
+        BackStack.push(depth)
     }
 
     /** Заменить текущий экран, не добавляя шаг «назад». */
@@ -169,23 +162,23 @@ class AppState(private val scope: CoroutineScope) {
         val from = depth
         stack = if (s == Screen.Home) listOf(Screen.Home) else listOf(Screen.Home, s)
         // Запись нужной глубины уже есть в истории — встаём на неё, новых не добавляем
-        if (from > depth) window.history.go(depth - from)
-        else if (from < depth) window.history.pushState(depth.toJsNumber(), "")
+        if (from > depth) BackStack.go(depth - from)
+        else if (from < depth) BackStack.push(depth)
     }
 
     fun back() {
         if (stack.size <= 1) return
-        if (historyDepth() == depth) {
-            window.history.back()
+        if (BackStack.depth() == depth) {
+            BackStack.back()
         } else {
             // История разошлась со стеком — не ждём popstate, которого может не быть
             stack = stack.dropLast(1)
-            window.history.replaceState(depth.toJsNumber(), "")
+            BackStack.replace(depth)
         }
     }
 
     private fun onPop() {
-        val d = historyDepth()
+        val d = BackStack.depth()
         if (d < depth) stack = stack.take(d + 1)
     }
 
@@ -468,7 +461,7 @@ class AppState(private val scope: CoroutineScope) {
         wakeUp.trySend(Unit)
     }
 
-    fun setPaused(on: Boolean) {
+    fun pauseSending(on: Boolean) {
         paused = on
         storage.write(PAUSE_KEY, if (on) "1" else "0")
         poke()
@@ -544,7 +537,7 @@ class AppState(private val scope: CoroutineScope) {
         if (name in images) return
         images[name] = null
         scope.launch {
-            runCatching { Image.makeFromEncoded(api.media(name)).toComposeImageBitmap() }
+            runCatching { decodeImage(api.media(name)) }
                 .onSuccess { images[name] = it }
                 .onFailure { images.remove(name) }
         }
@@ -563,14 +556,12 @@ class AppState(private val scope: CoroutineScope) {
     }
 
     fun start() {
-        window.history.replaceState(0.toJsNumber(), "")
-        window.addEventListener("popstate") { onPop() }
-        window.addEventListener("online") { poke(); refresh(force = false); progress.retry() }
-        document.addEventListener("visibilitychange") {
-            if (pageVisible()) {
-                poke()
-                refresh(force = false)
-            }
+        BackStack.replace(0)
+        BackStack.onPop { onPop() }
+        onOnline { poke(); refresh(force = false); progress.retry() }
+        onVisible {
+            poke()
+            refresh(force = false)
         }
         scope.launch { syncLoop() }
         if (session?.active != null) {

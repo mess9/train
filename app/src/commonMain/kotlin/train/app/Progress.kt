@@ -5,15 +5,11 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.toComposeImageBitmap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.datetime.LocalDate
-import org.jetbrains.skia.Image
-import org.jetbrains.skia.Rect
-import org.jetbrains.skia.Surface
 import train.client.ApiClient
 import train.client.ApiException
 import train.client.Link
@@ -92,7 +88,7 @@ class Progress(
         if (id in thumbs) return
         thumbs[id] = null
         scope.launch {
-            runCatching { decode(api.photoFile(id), THUMB) }
+            runCatching { decodeImage(api.photoFile(id), THUMB) }
                 .onSuccess { thumbs[id] = it }
                 .onFailure { thumbs.remove(id) }
         }
@@ -105,7 +101,7 @@ class Progress(
     fun open(id: Uuid) {
         opened = id to null
         scope.launch {
-            runCatching { decode(api.photoFile(id), FULL) }
+            runCatching { decodeImage(api.photoFile(id), FULL) }
                 .onSuccess { if (opened?.first == id) opened = id to it }
                 .onFailure { onLink(linkOf(it)) }
         }
@@ -157,7 +153,7 @@ class Progress(
                         val bytes = decodeBase64(photoData())
                         val takenAt = Instant.fromEpochMilliseconds(photoTakenAt().toLong())
                         photoReset()
-                        draft = PhotoDraft(newId(), bytes, runCatching { decode(bytes, FULL) }.getOrNull(), takenAt, workoutId)
+                        draft = PhotoDraft(newId(), bytes, runCatching { decodeImage(bytes, FULL) }.getOrNull(), takenAt, workoutId)
                         picking = Picking.None
                         return@launch
                     }
@@ -211,7 +207,7 @@ class Progress(
                 // Тот же id при повторе: сервер не задвоит фото, если первый ответ потерялся
                 val p = api.uploadPhoto(d.id, d.bytes, takenAt, pose, null, d.workoutId)
                 photos = (listOf(p) + photos.filterNot { it.id == p.id }).sortedByDescending { it.takenAt }
-                runCatching { decode(d.bytes, THUMB) }.onSuccess { thumbs[p.id] = it }
+                runCatching { decodeImage(d.bytes, THUMB) }.onSuccess { thumbs[p.id] = it }
                 if (draft === d) draft = null
                 waitingForNetwork = false
             } catch (e: Throwable) {
@@ -253,15 +249,3 @@ class Progress(
 
 @OptIn(ExperimentalEncodingApi::class)
 private fun decodeBase64(s: String): ByteArray = Base64.decode(s)
-
-/** Картинка, уменьшенная до [max] px по длинной стороне: полный снимок в памяти не держим. */
-private fun decode(bytes: ByteArray, max: Int): ImageBitmap {
-    val img = Image.makeFromEncoded(bytes)
-    val k = minOf(1f, max.toFloat() / maxOf(img.width, img.height))
-    if (k >= 1f) return img.toComposeImageBitmap()
-    val w = (img.width * k).toInt().coerceAtLeast(1)
-    val h = (img.height * k).toInt().coerceAtLeast(1)
-    val surface = Surface.makeRasterN32Premul(w, h)
-    surface.canvas.drawImageRect(img, Rect.makeWH(w.toFloat(), h.toFloat()))
-    return surface.makeImageSnapshot().toComposeImageBitmap().also { img.close() }
-}

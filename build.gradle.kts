@@ -9,6 +9,7 @@ plugins {
     // AGP 9 со встроенным Kotlin — в одном загрузчике классов с плагином Kotlin, иначе модуль
     // android не собирается. Quarkus — только в server: он поднимает JAXB до 4, а AGP нужен 2.3
     alias(libs.plugins.android.application) apply false
+    alias(libs.plugins.android.kmp.library) apply false
 }
 
 // Сквозные тесты (e2e/, ADR 0012): агент через CLI, владелец — PWA в Chromium, стенд — Postgres

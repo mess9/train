@@ -2,106 +2,71 @@
 
 package train.app
 
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.js.Js
+import kotlinx.browser.document
 import kotlinx.browser.localStorage
+import kotlinx.browser.window
+import org.jetbrains.skia.Image
+import org.jetbrains.skia.Rect
+import org.jetbrains.skia.Surface
 import train.core.Storage
 
-// Функции window.bridge из index.html: то, чего нет в Compose
+// PWA: функции window.bridge из index.html и API браузера
 
-/** `held` — замок `active-workout` у этой вкладки, `busy` — у другой. */
-fun lockState(): String = js("window.bridge.lock")
+actual fun lockState(): String = js("window.bridge.lock")
 
-fun wake(on: Boolean): Unit = js("window.bridge.wake(on)")
+actual fun wake(on: Boolean): Unit = js("window.bridge.wake(on)")
 
-fun buzz(): Unit = js("navigator.vibrate && navigator.vibrate([200, 100, 200])")
+actual fun buzz(): Unit = js("navigator.vibrate && navigator.vibrate([200, 100, 200])")
 
-private fun vibrate(a: Int, pause: Int, b: Int): Unit =
+internal actual fun vibrate(a: Int, pause: Int, b: Int): Unit =
     js("navigator.vibrate && navigator.vibrate(b > 0 ? [a, pause, b] : a)")
 
-/**
- * Отклик на нажатие: толчок, мс — `on`, `pause`, второй `on2` (0 — одиночный). У разных мест чуть
- * разный, чтобы на ощупь отличать «нажал кнопку» от «отметил подход». Новый толчок перебивает
- * идущий. iPhone браузер не вибрирует.
- */
-enum class Haptic(val on: Int, val pause: Int = 0, val on2: Int = 0) {
-    /** Кнопка, пункт меню, вкладка. */
-    Tick(8),
+/** Web Audio; звук разблокирован первым касанием (index.html). */
+actual fun beep(): Unit = js("window.bridge.beep()")
 
-    /** Фокус в поле ввода. */
-    Field(5),
+/** CSS-пиксели = dp на canvas. */
+actual fun keyboardHeight(): Int = js("window.bridge.keyboard()")
 
-    /** Оценки: лёгко — короткий, норма — дольше, тяжело — двойной. */
-    Easy(12),
-    Normal(24),
-    Hard(18, 50, 18),
-
-    /** Сердечко. */
-    Like(10, 40, 22),
-
-    /** Снята отметка подхода. */
-    Undo(6, 30, 6),
-
-    /** Закрыт проход круга или всё упражнение. */
-    Pass(14, 60, 34),
-}
-
-/** Отклик на нажатия включён на этом телефоне (`localStorage`, по умолчанию да). */
-var hapticsOn: Boolean = localStorage.getItem("haptics") != "off"
-    set(value) {
-        field = value
-        localStorage.setItem("haptics", if (value) "on" else "off")
-    }
-
-fun haptic(h: Haptic) {
-    if (hapticsOn) runCatching { vibrate(h.on, h.pause, h.on2) }
-}
-
-/** Короткий сигнал через Web Audio. Звук разблокирован первым касанием (index.html). */
-fun beep(): Unit = js("window.bridge.beep()")
-
-/** Высота экранной клавиатуры в CSS-пикселях (= dp на canvas), 0 — её нет. */
-fun keyboardHeight(): Int = js("window.bridge.keyboard()")
-
-fun showGif(id: String, url: String, key: String, x: Double, y: Double, w: Double, h: Double): Unit =
+/** HTML `<img>` поверх canvas: Compose анимацию gif не проигрывает. */
+actual fun showGif(id: String, url: String, key: String, x: Double, y: Double, w: Double, h: Double): Unit =
     js("window.bridge.showGif(id, url, key, x, y, w, h)")
 
-fun hideGif(id: String): Unit = js("window.bridge.hideGif(id)")
+actual fun hideGif(id: String): Unit = js("window.bridge.hideGif(id)")
 
-/** Вход в Cloudflare Access: страница из сети, мимо service worker. */
-fun openLogin(): Unit = js("location.href = '/?login=1'")
+/** Страница из сети, мимо service worker. */
+actual fun openLogin(): Unit = js("location.href = '/?login=1'")
 
-fun reload(): Unit = js("location.reload()")
+actual fun reload(): Unit = js("location.reload()")
 
-/** Хеш сборки приложения из имени `app.<хеш>.js`, `dev` без `server:appDist`. */
-fun appBuild(): String = js("window.bridge.build || 'dev'")
+/** Из имени `app.<хеш>.js`, `dev` без `server:appDist`. */
+actual fun appBuild(): String = js("window.bridge.build || 'dev'")
 
-fun pageVisible(): Boolean = js("document.visibilityState === 'visible'")
+actual fun pageVisible(): Boolean = js("document.visibilityState === 'visible'")
 
-/** Открыть камеру (`camera`) или галерею; результат — [photoState] и остальные `photo*`. Только из нажатия. */
-fun pickPhoto(camera: Boolean): Unit = js("window.bridge.pickPhoto(camera)")
+actual fun pickPhoto(camera: Boolean): Unit = js("window.bridge.pickPhoto(camera)")
 
-/** `none`, `picking` (открыт выбор), `busy` (сжимается), `ready`, `error`. */
-fun photoState(): String = js("window.bridge.photo.state")
+actual fun photoState(): String = js("window.bridge.photo.state")
 
-/** Сжатый файл в base64. */
-fun photoData(): String = js("window.bridge.photo.data || ''")
+actual fun photoData(): String = js("window.bridge.photo.data || ''")
 
-fun photoType(): String = js("window.bridge.photo.type || 'image/jpeg'")
+actual fun photoType(): String = js("window.bridge.photo.type || 'image/jpeg'")
 
-/** Когда снято, мс эпохи: с камеры — сейчас, из галереи — дата файла. */
-fun photoTakenAt(): Double = js("window.bridge.photo.takenAt || Date.now()")
+actual fun photoTakenAt(): Double = js("window.bridge.photo.takenAt || Date.now()")
 
-fun photoMessage(): String = js("window.bridge.photo.message || ''")
+actual fun photoMessage(): String = js("window.bridge.photo.message || ''")
 
-fun photoReset(): Unit = js("window.bridge.photoReset()")
+actual fun photoReset(): Unit = js("window.bridge.photoReset()")
 
-/** Системный выбор даты: `current`, `max` — `YYYY-MM-DD`. Выбранное — [takeDate]. Только из нажатия. */
-fun pickDate(current: String, max: String): Unit = js("window.bridge.pickDate(current, max)")
+actual fun pickDate(current: String, max: String): Unit = js("window.bridge.pickDate(current, max)")
 
-/** Выбранная дата `YYYY-MM-DD` или пусто — ещё не выбрана. */
-fun takeDate(): String = js("window.bridge.takeDate()")
+actual fun takeDate(): String = js("window.bridge.takeDate()")
 
-/** `localStorage`: запись синхронная — сессия на диске раньше, чем обновится экран. */
-object LocalStorage : Storage {
+/** `localStorage`: запись синхронная. */
+actual object DeviceStorage : Storage {
     override fun read(key: String): String? = localStorage.getItem(key)
 
     override fun write(key: String, value: String) = localStorage.setItem(key, value)
@@ -109,5 +74,36 @@ object LocalStorage : Storage {
     override fun remove(key: String) = localStorage.removeItem(key)
 }
 
-/** Поставил сердечко — свой толчок, снял — обычный. */
-fun likeHaptic(on: Boolean) = haptic(if (on) Haptic.Like else Haptic.Tick)
+actual fun serverOrigin(): String = window.location.origin
+
+actual fun httpClient(): HttpClient = HttpClient(Js) { followRedirects = false }
+
+actual fun decodeImage(bytes: ByteArray, max: Int): ImageBitmap {
+    val img = Image.makeFromEncoded(bytes)
+    val k = minOf(1f, max.toFloat() / maxOf(img.width, img.height))
+    if (k >= 1f) return img.toComposeImageBitmap()
+    val w = (img.width * k).toInt().coerceAtLeast(1)
+    val h = (img.height * k).toInt().coerceAtLeast(1)
+    val surface = Surface.makeRasterN32Premul(w, h)
+    surface.canvas.drawImageRect(img, Rect.makeWH(w.toFloat(), h.toFloat()))
+    return surface.makeImageSnapshot().toComposeImageBitmap().also { img.close() }
+}
+
+actual fun onOnline(action: () -> Unit) = window.addEventListener("online") { action() }
+
+actual fun onVisible(action: () -> Unit) = document.addEventListener("visibilitychange") { if (pageVisible()) action() }
+
+/** История браузера: в `state` записи — глубина. */
+actual object BackStack {
+    actual fun depth(): Int = (window.history.state as? JsNumber)?.toInt() ?: 0
+
+    actual fun push(depth: Int) = window.history.pushState(depth.toJsNumber(), "")
+
+    actual fun replace(depth: Int) = window.history.replaceState(depth.toJsNumber(), "")
+
+    actual fun go(delta: Int) = window.history.go(delta)
+
+    actual fun back() = window.history.back()
+
+    actual fun onPop(action: () -> Unit) = window.addEventListener("popstate") { action() }
+}

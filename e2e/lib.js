@@ -186,11 +186,13 @@ export class Phone {
     const inside = ns.filter((n) => n.y > menu.y + menu.h && n.y < stop);
     const rows = new Map();
     for (const n of inside) {
-      if (n.role !== 'textbox' && !(n.role === 'button' && ['Легко', 'Норм', 'Тяжело'].includes(n.all))) continue;
+      // Оценка — пиктограмма, её имя в подписи (contentDescription)
+      const rate = n.role === 'button' && ['Легко', 'Норм', 'Тяжело'].find((t) => t === n.label || t === n.all);
+      if (n.role !== 'textbox' && !rate) continue;
       const k = Math.round(n.y / 10);
       if (!rows.has(k)) rows.set(k, { y: n.y, fields: [], rate: {} });
       const r = rows.get(k);
-      if (n.role === 'textbox') r.fields.push(n); else r.rate[n.all] = n;
+      if (n.role === 'textbox') r.fields.push(n); else r.rate[rate] = n;
     }
     return [...rows.values()].sort((a, b) => a.y - b.y).map((r) => ({ ...r, fields: r.fields.sort((a, b) => a.x - b.x) }));
   }

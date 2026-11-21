@@ -62,3 +62,4 @@ kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "ko
 compose = { id = "org.jetbrains.compose", version.ref = "compose" }
 quarkus = { id = "io.quarkus", version.ref = "quarkus" }
 android-application = { id = "com.android.application", version.ref = "agp" }
+android-kmp-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
