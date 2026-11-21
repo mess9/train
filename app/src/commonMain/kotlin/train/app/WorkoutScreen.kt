@@ -102,7 +102,7 @@ private sealed interface WSheet {
     data class ConfirmFinish(val undone: Int) : WSheet
 
     /** Какой выполненный подход удалить. */
-    data class RemoveDone(val blockId: Uuid, val itemId: Uuid) : WSheet
+    data class RemoveSet(val blockId: Uuid, val itemId: Uuid) : WSheet
 }
 
 /** Раскрытые карточки — в сохраняемом состоянии экрана: вернулся с «Техники», они раскрыты. */
@@ -170,30 +170,48 @@ fun WorkoutScreen(app: AppState) {
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            // Шапка
-            Row(
-                Modifier.fillMaxWidth().background(C.Bar).padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                IconBtn(Icon.Down, { app.root(Screen.Home) }, label = "Свернуть тренировку")
-                Column(Modifier.weight(1f)) {
-                    Txt(app.workoutTitle(w), ts(13.sp, C.Muted, FontWeight.Medium), maxLines = 1)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Txt(hms(now - w.startedAt), ts(22.sp, weight = FontWeight.Bold))
-                        val n = s.outbox.size
-                        if (n > 0 || app.paused) Box(Modifier.clip(RoundedCornerShape(8.dp)).tap { app.go(Screen.Settings) }) {
-                            Tag(if (app.paused) "пауза · $n" else "в очереди · $n")
+            // Шапка. Где можно управлять плеером (APK), его кнопки и таймер — второй строкой: в одну не влезут
+            val n = s.outbox.size
+            val queue: @Composable () -> Unit = {
+                if (n > 0 || app.paused) Box(Modifier.clip(RoundedCornerShape(8.dp)).tap { app.go(Screen.Settings) }) {
+                    Tag(if (app.paused) "пауза · $n" else "в очереди · $n")
+                }
+            }
+            val timer: @Composable () -> Unit = { IconBtn(Icon.Timer, { sheet = WSheet.Tools }, label = "Таймер и секундомер") }
+            Column(Modifier.fillMaxWidth().background(C.Bar)) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    IconBtn(Icon.Down, { app.root(Screen.Home) }, label = "Свернуть тренировку")
+                    Column(Modifier.weight(1f)) {
+                        Txt(app.workoutTitle(w), ts(13.sp, C.Muted, FontWeight.Medium), maxLines = 1)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Txt(hms(now - w.startedAt), ts(22.sp, weight = FontWeight.Bold))
+                            if (!mediaKeys) queue()
                         }
                     }
+                    if (!mediaKeys) timer()
+                    Btn("Завершить", {
+                        val undone = undoneCount(passes)
+                        if (undone > 0) sheet = WSheet.ConfirmFinish(undone) else finishNow()
+                    })
                 }
-                IconBtn(Icon.Timer, { sheet = WSheet.Tools }, label = "Таймер и секундомер")
-                Btn("Завершить", {
-                    val undone = undoneCount(passes)
-                    if (undone > 0) sheet = WSheet.ConfirmFinish(undone) else finishNow()
-                })
+                if (mediaKeys) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Box(Modifier.weight(1f)) { queue() }
+                        Player(now)
+                        Box(Modifier.width(8.dp))
+                        timer()
+                    }
+                }
+                SetsProgress(passes, tints)
             }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(C.Field))
 
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 // Снизу место под плашку «Закрепить»: стрелки последней карточки не под ней
@@ -294,14 +312,14 @@ fun WorkoutScreen(app: AppState) {
                     Sheet({ sheet = null }) { CommentSheet(app, b, item) { sheet = null } }
                 }
             }
-            is WSheet.RemoveDone -> {
+            is WSheet.RemoveSet -> {
                 val b = s.block(sh.blockId)
                 val item = b?.items?.firstOrNull { it.id == sh.itemId }
-                val done = if (b == null || item == null) emptyList() else BlockPasses(b, s.sets).rows(item).filter { it.done }
-                if (b == null || item == null || done.isEmpty()) {
+                val rows = if (b == null || item == null) emptyList() else BlockPasses(b, s.sets).rows(item)
+                if (b == null || item == null || rows.isEmpty()) {
                     sheet = null
                 } else {
-                    Sheet({ sheet = null }) { RemoveDoneSheet(app, b, item, done) { sheet = null } }
+                    Sheet({ sheet = null }) { RemoveSetSheet(app, b, item, rows) { sheet = null } }
                 }
             }
             is WSheet.ConfirmFinish -> Sheet({ sheet = null }) {
@@ -314,6 +332,62 @@ fun WorkoutScreen(app: AppState) {
                     Btn("Продолжить", { sheet = null }, Modifier.weight(1f), Kind.Ghost)
                     Btn("Завершить", { sheet = null; finishNow() }, Modifier.weight(1f))
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Кнопки плеера, который играет в фоне. «Играть / пауза» — по тому, звучит ли музыка: проверяем
+ * каждую секунду ([now]) и чаще сразу после нажатия — плееру нужно мгновение, чтобы ответить.
+ */
+@Composable
+private fun Player(now: Instant) {
+    var playing by remember { mutableStateOf(musicPlaying()) }
+    var pressed by remember { mutableStateOf(0) }
+    LaunchedEffect(now) { playing = musicPlaying() }
+    LaunchedEffect(pressed) {
+        if (pressed == 0) return@LaunchedEffect
+        repeat(4) {
+            delay(250)
+            playing = musicPlaying()
+        }
+    }
+    fun press(k: MediaKey) {
+        mediaKey(k)
+        pressed++
+    }
+    IconBtn(Icon.TrackPrev, { press(MediaKey.Prev) }, 40.dp, C.Muted, fill = true, iconSize = 18.dp, label = "Предыдущий трек")
+    IconBtn(
+        if (playing) Icon.Pause else Icon.Play, { press(MediaKey.PlayPause) }, 40.dp, C.Soft, fill = true, iconSize = 20.dp,
+        label = if (playing) "Пауза музыки" else "Играть музыку",
+    )
+    IconBtn(Icon.TrackNext, { press(MediaKey.Next) }, 40.dp, C.Muted, fill = true, iconSize = 18.dp, label = "Следующий трек")
+}
+
+/**
+ * Тонкая полоска под шапкой: часть на каждый блок, длиной по его подходам, цветом блока.
+ * Сделанные подходы заливают свою часть, остаток — тёмный оттенок того же цвета.
+ */
+@Composable
+private fun SetsProgress(passes: List<BlockPasses>, tints: List<Tint>) {
+    val parts = passes.mapIndexedNotNull { i, bp ->
+        val rows = bp.items.flatMap(bp::rows)
+        if (rows.isEmpty()) null else Triple(rows.size, rows.count { it.done }, tints[i])
+    }
+    if (parts.isEmpty()) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(C.Field))
+        return
+    }
+    val total = parts.sumOf { it.first }
+    val done = parts.sumOf { it.second }
+    Row(
+        Modifier.fillMaxWidth().height(3.dp).semantics { contentDescription = "Сделано $done из $total подходов" },
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        parts.forEach { (all, made, tint) ->
+            Box(Modifier.weight(all.toFloat()).fillMaxHeight().background(tint.line)) {
+                if (made > 0) Box(Modifier.fillMaxWidth(made.toFloat() / all).fillMaxHeight().background(tint.tint))
             }
         }
     }
@@ -436,6 +510,12 @@ private fun ExerciseCard(
                             )
                         } else {
                             SetLine(app, bp.block, item, row, row == next, s.previous, onRate, of, onNo = if (row.done) ({ onEdit(key) }) else null)
+                            if (row.done) {
+                                RemoveRowLink(row.setNo) {
+                                    onEdit(key)
+                                    removeRow(app, bp.block, item, row.setNo)
+                                }
+                            }
                         }
                     }
                     if (expanded) {
@@ -727,12 +807,22 @@ private fun MenuSheet(
     val ex = app.exercise(item.exerciseId)
     val rows = app.session?.let { BlockPasses(b, it.sets).rows(item) }.orEmpty()
     val complete = rows.isNotEmpty() && rows.all { it.done }
+    fun toggleLike() {
+        likeHaptic(!item.liked)
+        app.act { like(b.id, item.id, !item.liked) }
+        onClose(null)
+    }
+    fun toggleDislike() {
+        likeHaptic(!item.disliked)
+        app.act { dislike(b.id, item.id, !item.disliked) }
+        onClose(null)
+    }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Txt(ex?.nameRu ?: "Упражнение", ts(17.sp, weight = FontWeight.Bold), Modifier.weight(1f))
-        // Сердечко и дизлайк — сразу в шапке меню: одно касание, лист остаётся открытым
-        IconBtn(Icon.Dislike, { likeHaptic(!item.disliked); app.act { dislike(b.id, item.id, !item.disliked) } }, 40.dp, if (item.disliked) C.Dislike else C.Muted, fill = item.disliked,
+        // Сердечко и дизлайк — сразу в шапке меню: одно касание, и лист закрывается
+        IconBtn(Icon.Dislike, ::toggleDislike, 40.dp, if (item.disliked) C.Dislike else C.Muted, fill = item.disliked,
             label = if (item.disliked) "Убрать дизлайк" else "Поставить дизлайк")
-        IconBtn(Icon.Heart, { likeHaptic(!item.liked); app.act { like(b.id, item.id, !item.liked) } }, 40.dp, if (item.liked) C.Heart else C.Muted, fill = item.liked,
+        IconBtn(Icon.Heart, ::toggleLike, 40.dp, if (item.liked) C.Heart else C.Muted, fill = item.liked,
             label = if (item.liked) "Убрать сердечко" else "Поставить сердечко")
     }
     Column {
@@ -742,8 +832,8 @@ private fun MenuSheet(
                 onClose(null)
             }
         }
-        MenuItem(if (item.liked) "Убрать сердечко" else "Очень понравилось") { likeHaptic(!item.liked); app.act { like(b.id, item.id, !item.liked) } }
-        MenuItem(if (item.disliked) "Убрать дизлайк" else "Не понравилось") { likeHaptic(!item.disliked); app.act { dislike(b.id, item.id, !item.disliked) } }
+        MenuItem(if (item.liked) "Убрать сердечко" else "Очень понравилось", onClick = ::toggleLike)
+        MenuItem(if (item.disliked) "Убрать дизлайк" else "Не понравилось", onClick = ::toggleDislike)
         MenuItem(if (item.comment == null) "Заметка к упражнению…" else "Изменить заметку…") { onClose(WSheet.Comment(b.id, item.id)) }
         MenuItem("Техника и мышцы") {
             onClose(null)
@@ -755,14 +845,10 @@ private fun MenuSheet(
             onExpand(true)
             onClose(null)
         }
-        if (rows.any { !it.done }) {
-            MenuItem("Убрать невыполненный подход") {
-                app.act { removeSet(b.id, item.id) }
-                onClose(null)
-            }
-        }
-        if (rows.any { it.done }) {
-            MenuItem("Удалить выполненный подход…") { onClose(WSheet.RemoveDone(b.id, item.id)) }
+        // Один пункт на любой подход: два («убрать невыполненный» и «удалить выполненный…») путали —
+        // лишний сделанный подход искали в первом и не находили
+        if (rows.isNotEmpty()) {
+            MenuItem("Удалить подход…") { onClose(WSheet.RemoveSet(b.id, item.id)) }
         }
         when (item.recordType) {
             RecordType.REPS -> MenuItem("Записывать временем вместо повторов") {
@@ -804,26 +890,46 @@ private fun CommentSheet(app: AppState, b: LayoutBlock, item: LayoutItem, onDone
     }
 }
 
+/** Выбор подхода для удаления — любого: сделанного, несделанного, планового или лишнего. */
 @Composable
-private fun RemoveDoneSheet(app: AppState, b: LayoutBlock, item: LayoutItem, done: List<SetRow>, onDone: () -> Unit) {
+private fun RemoveSetSheet(app: AppState, b: LayoutBlock, item: LayoutItem, rows: List<SetRow>, onDone: () -> Unit) {
     val ex = app.exercise(item.exerciseId)
     Txt("Удалить подход", ts(17.sp, weight = FontWeight.Bold))
-    Txt("${ex?.nameRu ?: "Упражнение"} · в разборе плановый подход станет пропущенным", ts(14.sp, C.Soft))
+    Txt("${ex?.nameRu ?: "Упражнение"} · лишний исчезнет, плановый в разборе станет пропущенным", ts(14.sp, C.Soft))
     Column {
-        done.forEach { row ->
-            val f = row.fact
+        rows.forEach { row ->
+            val f = row.fact?.takeIf { row.done }
             val label = listOfNotNull(
                 "Подход ${row.setNo}",
-                f?.let { short(it.recordType, it.values) },
+                if (f != null) short(f.recordType, f.values) else "не сделан",
                 f?.rating?.label(),
                 f?.doneAt?.clock(),
+                "лишний".takeIf { row.target == null },
             ).joinToString(" · ")
             MenuItem(label, C.Danger) {
-                app.act { removeSet(b.id, item.id, row.setNo) }
-                if (app.justRated == item.id to row.setNo) app.justRated = null
+                removeRow(app, b, item, row.setNo)
                 onDone()
             }
         }
+    }
+}
+
+private fun removeRow(app: AppState, b: LayoutBlock, item: LayoutItem, setNo: Int) {
+    app.act { removeSet(b.id, item.id, setNo) }
+    if (app.justRated == item.id to setNo) app.justRated = null
+}
+
+/** Под открытым для правки сделанным подходом: удалить его — там, где его и ищут. */
+@Composable
+private fun RemoveRowLink(setNo: Int, onClick: () -> Unit) {
+    Row(
+        Modifier.padding(start = 2.dp, bottom = 4.dp).clip(RoundedCornerShape(8.dp)).tap(onClick).padding(horizontal = 6.dp, vertical = 6.dp)
+            .semantics { contentDescription = "Удалить подход $setNo" },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Ico(Icon.Trash, 14.dp, C.Danger)
+        Txt("Удалить подход $setNo", ts(13.sp, C.Danger, FontWeight.SemiBold))
     }
 }
 

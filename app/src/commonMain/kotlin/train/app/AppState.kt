@@ -17,6 +17,7 @@ import kotlinx.datetime.minus
 import kotlinx.datetime.plus
 import kotlinx.serialization.Serializable
 import train.client.ApiClient
+import train.client.ApiException
 import train.client.Link
 import train.client.PutResult
 import train.client.SendResult
@@ -40,6 +41,7 @@ import train.core.SyncRecord
 import train.core.TrainJson
 import train.core.Workout
 import train.core.WorkoutLayout
+import train.core.WorkoutVolume
 import train.core.accepted
 import train.core.conflict
 import train.core.loadSession
@@ -93,6 +95,20 @@ data class Cache(
 const val KEY_KEY = "key"
 const val CACHE_KEY = "cache"
 const val PAUSE_KEY = "pause"
+
+/** Адрес сервера и сервисный токен Cloudflare Access — только у APK ([serverConfigurable]). */
+const val SERVER_KEY = "server"
+const val CF_ID_KEY = "cf_client_id"
+const val CF_SECRET_KEY = "cf_client_secret"
+
+/** Ссылка `https://сервер/#key=…` из `gym admin key --qr` — адрес и ключ; просто ключ — адреса нет. */
+fun parseKeyLink(text: String): Pair<String?, String> {
+    val t = text.trim()
+    val i = t.indexOf("#key=")
+    if (i < 0) return null to t
+    val origin = t.substring(0, i).trimEnd('/').takeIf { it.startsWith("http://") || it.startsWith("https://") }
+    return origin to t.substring(i + "#key=".length).substringBefore('&').trim()
+}
 
 class AppState(private val scope: CoroutineScope) {
     private val storage = DeviceStorage
@@ -221,17 +237,25 @@ class AppState(private val scope: CoroutineScope) {
 
     // Подключение
 
+    /** Ключ или ссылка `…/#key=…`. У APK ссылка задаёт и сервер; у PWA сервер — страница, адрес из ссылки не нужен. */
     fun connect(newKey: String) {
-        val k = newKey.trim()
+        val (linkOrigin, k) = parseKeyLink(newKey)
         if (k.isEmpty()) return
+        val origin = (if (serverConfigurable) linkOrigin else null) ?: serverOrigin()
+        if (origin.isEmpty()) {
+            connectError = "Нужна ссылка с адресом сервера: https://…/#key=…"
+            return
+        }
         connectError = null
         scope.launch {
             // Общий клиент не трогаем, пока ключ не проверен
-            val me = runCatching { client(k).me() }.getOrElse { e ->
+            val me = runCatching { ApiClient(http, origin, k).me() }.getOrElse { e ->
                 link = linkOf(e)
                 connectError = linkText(link) ?: (e.message ?: "ошибка")
                 return@launch
             }
+            if (serverConfigurable) storage.write(SERVER_KEY, origin)
+            api.baseUrl = origin
             storage.write(KEY_KEY, k)
             key = k
             api.key = k
@@ -256,6 +280,13 @@ class AppState(private val scope: CoroutineScope) {
         saveCache(cache.copy(me = me))
         owner = k to me.userId
         poke()
+    }
+
+    /** Сервисный токен Cloudflare Access (APK): пусто — без токена. Действует со следующего запроса. */
+    fun setAccess(id: String, secret: String) {
+        listOf(CF_ID_KEY to id, CF_SECRET_KEY to secret).forEach { (name, v) ->
+            if (v.isBlank()) storage.remove(name) else storage.write(name, v.trim())
+        }
     }
 
     fun forgetKey() {
@@ -555,6 +586,76 @@ class AppState(private val scope: CoroutineScope) {
         scope.launch { runCatching { api.compare(id) }.onSuccess { comparisons[id] = it }.onFailure { link = linkOf(it) } }
     }
 
+    /** Объём тренировок для списка истории: считает сервер, у телефона нет всех подходов. */
+    val volumes = mutableStateMapOf<Uuid, WorkoutVolume>()
+
+    fun loadVolumes() {
+        val k = key ?: return
+        scope.launch {
+            // Сервер без этого запроса (старая сборка) — список просто без объёма
+            runCatching { client(k).volumes(Clock.System.now().date().minus(DatePeriod(days = 365)), null) }
+                .onSuccess { vs -> if (key == k) volumes.putAll(vs.associateBy { it.workoutId }) }
+        }
+    }
+
+    /** Тренировка ждёт отправки — она сама или её подходы: стирать нельзя, очередь её воскресит. */
+    fun unsent(workoutId: Uuid): Boolean = session?.outbox?.pending.orEmpty().any {
+        val r = it.record
+        (r is Workout && r.id == workoutId) || (r is SetFact && r.workoutId == workoutId)
+    }
+
+    /** Идёт удаление; `erasing` и `eraseError` — для листа подтверждения. */
+    var erasing by mutableStateOf(false)
+        private set
+    var eraseError by mutableStateOf<String?>(null)
+
+    /**
+     * Стереть тренировку насовсем — и на сервере (подходы, их версии), мимо корзины. Только по
+     * сети: в очередь не ставится, иначе пришлось бы держать тренировку в истории до отправки.
+     */
+    fun eraseWorkout(id: Uuid, onDone: () -> Unit) {
+        val k = key ?: return
+        if (erasing) return
+        if (unsent(id)) {
+            eraseError = "Тренировка ещё не отправлена на сервер — дождись отправки и попробуй снова"
+            return
+        }
+        erasing = true
+        eraseError = null
+        scope.launch {
+            try {
+                client(k).eraseWorkout(id)
+                forget(id)
+                onDone()
+                refresh()
+            } catch (e: Throwable) {
+                // Уже стёрта (с другого телефона) — всё равно убрать отсюда
+                if (e is ApiException && e.status == 404) {
+                    forget(id)
+                    onDone()
+                } else {
+                    link = linkOf(e)
+                    eraseError = if (link == Link.ONLINE) "Сервер не удалил: ${e.message.orEmpty()}" else "Нет связи с сервером — удалить можно только онлайн"
+                }
+            } finally {
+                erasing = false
+            }
+        }
+    }
+
+    /** Стёртую тренировку — из истории, разбора и объёмов; замеры и фото остаются без привязки. */
+    private fun forget(id: Uuid) {
+        comparisons.remove(id)
+        volumes.remove(id)
+        saveCache(
+            cache.copy(
+                workouts = cache.workouts.filterNot { it.id == id },
+                measurements = cache.measurements.map { if (it.workoutId == id) it.copy(workoutId = null) else it },
+            ),
+        )
+        progress.unlinkWorkout(id)
+    }
+
     fun start() {
         BackStack.replace(0)
         BackStack.onPop { onPop() }
@@ -579,7 +680,7 @@ class AppState(private val scope: CoroutineScope) {
 fun linkText(link: Link): String? = when (link) {
     Link.ONLINE -> null
     Link.OFFLINE -> "офлайн"
-    Link.ACCESS_LOGIN -> "нужен вход в Cloudflare"
+    Link.ACCESS_LOGIN -> if (serverConfigurable) "Cloudflare не пускает — проверьте сервисный токен" else "нужен вход в Cloudflare"
     Link.KEY_REJECTED -> "ключ не принят"
     Link.SERVER_ERROR -> "ошибка сервера"
     Link.OTHER_USER -> "ключ другого пользователя"

@@ -10,9 +10,11 @@ import train.core.API_PREFIX
 import train.core.BODYWEIGHT
 import train.core.Stats
 import train.core.WeekSummary
+import train.core.WorkoutVolume
 import train.core.monday
 import train.core.stats
 import train.core.weeks
+import train.core.workoutVolumes
 
 /**
  * Сводка за период для раздела «Замеры»: нагрузка по мышцам и участкам тела, минуты по дням,
@@ -46,6 +48,29 @@ class StatsResource(
             user.id, BODYWEIGHT, days.end(end),
         ) { it.measurement() }
         return stats(start, end, workouts, sets, store.exercises(user.id, sets.map { it.exerciseId }.toSet()), weights, days.zone)
+    }
+
+    /** Объём каждой тренировки за период — для списка истории. Без дат — последние 120 дней. */
+    @GET
+    @Path("volumes")
+    fun volumes(@QueryParam("from") from: String?, @QueryParam("to") to: String?): List<WorkoutVolume> {
+        val end = parseDate(to) ?: days.today()
+        val start = parseDate(from) ?: end.minus(DatePeriod(days = 119))
+        if (start > end) throw badRequest("from позже to")
+        val workouts = db.list(
+            "select * from workout where user_id = ? and not deleted and start_date >= ? and start_date <= ?",
+            user.id, start, end,
+        ) { it.workout() }
+        val sets = if (workouts.isEmpty()) emptyList()
+        else db.list(
+            "select * from workout_set where workout_id = any(?) and done and not deleted",
+            UuidList(workouts.map { it.id }),
+        ) { it.setFact() }
+        val weights = db.list(
+            "select * from measurement where user_id = ? and type = ? and not deleted and measured_at < ? order by measured_at",
+            user.id, BODYWEIGHT, days.end(end),
+        ) { it.measurement() }
+        return workoutVolumes(workouts, sets, store.exercises(user.id, sets.map { it.exerciseId }.toSet()), weights)
     }
 
     /**

@@ -1,11 +1,13 @@
 package train.server
 
 import jakarta.transaction.Transactional
+import jakarta.ws.rs.DELETE
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.PUT
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
 import jakarta.ws.rs.QueryParam
+import jakarta.ws.rs.core.Response
 import org.jboss.resteasy.reactive.RestResponse
 import train.core.API_PREFIX
 import train.core.Comparison
@@ -55,6 +57,8 @@ class WorkoutResource(
     fun put(@PathParam("id") id: String, body: SyncPut<Workout>): RestResponse<Workout> {
         val workoutId = parseId(id)
         if (body.data.id != workoutId) throw badRequest("id в пути и в теле не совпадают")
+        // Правка записи, которой нет, — тренировку стёрли (erase), а телефон отправляет старое: не воскрешать
+        if (body.baseRev > 0 && store.workoutRow(workoutId) == null) throw apiError(Response.Status.GONE, "тренировка $workoutId удалена")
         val load = {
             store.workoutRow(workoutId, forUpdate = true)?.also { if (it.userId != user.id) throw notFound() }?.stored
         }
@@ -85,6 +89,31 @@ class WorkoutResource(
                 )
             }
             n
+        }
+    }
+
+    /**
+     * Стереть тренировку насовсем, мимо корзины: подходы (каскадом) и прежние версии тренировки и
+     * подходов. Замеры, фото и журнал остаются без привязки (`on delete set null`). План, который
+     * она начала, снова не начат, если других тренировок по нему нет. Повторная отправка старой
+     * версии с телефона после этого отвергается ([put], 410), подхода — 404: тренировки нет.
+     */
+    @DELETE
+    @Path("{id}")
+    @Transactional
+    fun erase(@PathParam("id") id: String) {
+        val workoutId = parseId(id)
+        val w = store.workoutRow(workoutId, forUpdate = true)?.takeIf { it.userId == user.id }?.stored?.record ?: throw notFound()
+        val setIds = db.list("select id from workout_set where workout_id = ?", workoutId) { it.uuidReq("id") }
+        if (setIds.isNotEmpty()) db.update("delete from revision_log where entity = 'set' and entity_id = any(?)", UuidList(setIds))
+        db.update("delete from revision_log where entity = 'workout' and entity_id = ?", workoutId)
+        db.update("delete from workout where id = ?", workoutId)
+        if (w.planId != null) {
+            db.update(
+                "update plan set started_at = null, started_version = null where id = ? and user_id = ? " +
+                    "and not exists (select 1 from workout where plan_id = plan.id)",
+                w.planId, user.id,
+            )
         }
     }
 

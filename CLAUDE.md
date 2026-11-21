@@ -18,7 +18,8 @@
 - `app` — общий код PWA и будущего APK (`docs/PLAN-android.md`): экраны и `AppState` в
   `commonMain`, браузер и система — только через `expect` в `Platform.kt`. PWA — `wasmJsMain`
   (`Bridge.kt` — `actual` поверх `window.bridge` из `index.html`, вход — `WebMain.kt`),
-  Android — `androidMain/Platform.android.kt` (пока заглушки).
+  Android — `androidMain` (`Platform.android.kt`, `AndroidHost.kt`), APK — модуль `android/`
+  (вход, манифест, подпись).
 
 ## Тренировки владельца
 
@@ -63,12 +64,22 @@ skillshare, так что правка в репо = правка skill).
 - **В Jenkins только core, client, cli** — внутри `docker build --target test`. `server:test`
   там не идёт (нужен Docker в Docker): серверные тесты — локально, перед пушем. Коммит без
   файлов из `COPY` в `Dockerfile` (доки, `.claude/`, `docs/`) берёт сборку и тесты из кэша слоёв.
-- **Android**: `./gradlew :health-sync:assembleDebug` → `health-sync/build/outputs/apk/debug/`. Модуль
-  включается, только если есть `ANDROID_HOME` или `local.properties`; в `Dockerfile` папку не
-  копируют — Jenkins его не собирает. AGP 9 (Kotlin встроенный) объявлен в корне рядом с
+- **Android**: `./gradlew :health-sync:assembleDebug` → `health-sync/build/outputs/apk/debug/`. Он и `android`
+  включаются, только если есть `ANDROID_HOME` или `local.properties`; в `Dockerfile` папки не
+  копируют — Jenkins их не собирает. AGP 9 (Kotlin встроенный) объявлен в корне рядом с
   Kotlin-плагином: из одного `health-sync/build.gradle.kts` — «Could not create an instance of
   KotlinAndroidTarget». Quarkus — только в `server/build.gradle.kts`: в корне он поднимает JAXB
   до 4, и AGP падает на `javax/xml/bind/annotation/XmlSchema`.
+- **APK**: `./gradlew :android:assembleRelease` → `android/build/outputs/apk/release/`. Подпись —
+  `train.signing.store`, `storePassword`, `keyAlias` (по умолчанию `train`), `keyPassword` в
+  `~/.gradle/gradle.properties`; без них APK неподписанный и не ставится. Плавность мерить только
+  на release. `assembleDebug` — `train.app.debug`, ставится рядом с боевой.
+- APK на эмуляторе против `preview_start server`: `adb reverse tcp:7313 tcp:7313` и ссылка
+  `http://127.0.0.1:7313/#key=dev-key`. На `10.0.2.2:7313` quarkusDev отвечает 400 (чужой
+  `Host`), а HTTP без TLS разрешён только `localhost`/`127.0.0.1` (`network_security_config.xml`).
+  `adb input text` кириллицу не вводит; `screencap` — 1080×2400, Read показывает уменьшенным.
+- `AndroidHost.init` — в `Application.onCreate`, до любого `DeviceStorage`: каталог хранилища
+  задаёт он. Activity цепляет `attach` — лаунчеры фото и «назад» регистрируются до `STARTED`.
 - У `app` Android-таргет (`com.android.kotlin.multiplatform.library`), а в Docker-сборке SDK нет, и
   это нормально: AGP настраивает модуль без SDK, падает только Android-задача. Серверу и
   `server:appDist` нужен лишь wasm.
@@ -89,6 +100,9 @@ skillshare, так что правка в репо = правка skill).
   страницы (service worker).
 - Приложение в превью открывать на `http://127.0.0.1:7313/#key=dev-key`: у `localhost` своё
   хранилище, там сессия от прошлой базы с неотправленным.
+- Сессия от прошлой базы и на `127.0.0.1` («ключ другого пользователя», незакрытая тренировка):
+  `localStorage.clear()` не хватит, приложение при выгрузке пишет её обратно. Очищать одним
+  скриптом: `localStorage.clear(); Storage.prototype.setItem = () => {}; location.reload()`.
 - Жесты скриптом: холст Compose в shadow root —
   `[...document.querySelectorAll('div')].find(d => d.shadowRoot).shadowRoot.querySelector('canvas')`,
   в него `PointerEvent` `pointerdown`/`pointermove`/`pointerup` (`pointerType: 'touch'`).

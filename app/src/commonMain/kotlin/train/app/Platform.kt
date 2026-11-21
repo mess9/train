@@ -16,21 +16,28 @@ expect fun wake(on: Boolean)
 /** Сигнал конца отдыха: два толчка. */
 expect fun buzz()
 
-/** Толчок, мс: `a`, пауза `pause`, второй `b` (0 — одиночный). Новый перебивает идущий. */
-internal expect fun vibrate(a: Int, pause: Int, b: Int)
+/** Отклик [h]: у PWA — толчки по его длительностям, у Android — свой эффект системы. Новый перебивает идущий. */
+internal expect fun vibrate(h: Haptic)
 
 /** Короткий звуковой сигнал. */
 expect fun beep()
 
+/** Клавиша плеера, который играет в фоне (Spotify, YouTube Music…). */
+enum class MediaKey { Prev, PlayPause, Next }
+
+/** Управлять чужим плеером можно: у APK — медиа-клавиши системы, у браузера такого нет. */
+expect val mediaKeys: Boolean
+
+/** Нажать [key] плеера, как кнопкой гарнитуры. */
+expect fun mediaKey(key: MediaKey)
+
+/** Сейчас что-то играет: показать «пауза», а не «играть». */
+expect fun musicPlaying(): Boolean
+
 /** Высота экранной клавиатуры в dp, 0 — её нет. */
 expect fun keyboardHeight(): Int
 
-/** Показать гифку упражнения в рамке `x, y, w, h` (dp от угла окна) с ключом API `key`. */
-expect fun showGif(id: String, url: String, key: String, x: Double, y: Double, w: Double, h: Double)
-
-expect fun hideGif(id: String)
-
-/** Вход в Cloudflare Access. */
+/** Вход в Cloudflare Access (PWA — страница входа). У APK не зовётся: вместо входа — сервисный токен. */
 expect fun openLogin()
 
 /** Перезапустить приложение: новая сборка или сброс. */
@@ -69,8 +76,14 @@ expect fun takeDate(): String
 /** Хранилище телефона: запись синхронная — сессия на диске раньше, чем обновится экран (ADR 0007). */
 expect object DeviceStorage : Storage
 
-/** Адрес сервера без `/` на конце. PWA — откуда загружена страница. */
+/** Адрес сервера без `/` на конце. PWA — откуда загружена страница, APK — из ссылки подключения. */
 expect fun serverOrigin(): String
+
+/**
+ * Адрес сервера и сервисный токен Cloudflare Access задаёт пользователь: у APK их неоткуда взять.
+ * У PWA адрес — страница, а Cloudflare пускает по куке после входа ([openLogin]).
+ */
+expect val serverConfigurable: Boolean
 
 /** HTTP-клиент без перехода по редиректам: редирект — вход Cloudflare Access (`Link.ACCESS_LOGIN`). */
 expect fun httpClient(): HttpClient
@@ -135,6 +148,13 @@ enum class Haptic(val on: Int, val pause: Int = 0, val on2: Int = 0) {
     Pass(14, 60, 34),
 }
 
+/**
+ * Отклик на нажатия вообще есть: у APK — да. У PWA нет: короткий `navigator.vibrate` Android
+ * глушит, когда в системе выключена вибрация при касании, и браузеру это не обойти, — настройка
+ * в PWA неактивна, с подсказкой про приложение.
+ */
+expect val tapHaptics: Boolean
+
 /** Отклик на нажатия включён на этом телефоне (по умолчанию да). */
 var hapticsOn: Boolean = DeviceStorage.read("haptics") != "off"
     set(value) {
@@ -143,7 +163,7 @@ var hapticsOn: Boolean = DeviceStorage.read("haptics") != "off"
     }
 
 fun haptic(h: Haptic) {
-    if (hapticsOn) runCatching { vibrate(h.on, h.pause, h.on2) }
+    if (tapHaptics && hapticsOn) runCatching { vibrate(h) }
 }
 
 /** Поставил сердечко — свой толчок, снял — обычный. */

@@ -38,6 +38,8 @@ kotlin {
         }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
+            // ComponentActivity: выбор фото, «назад», жизненный цикл (AndroidHost)
+            implementation(libs.activity)
         }
         wasmJsMain.dependencies {
             implementation(libs.kotlinx.browser)

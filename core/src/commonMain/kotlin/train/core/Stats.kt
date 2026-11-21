@@ -107,6 +107,30 @@ data class Stats(
     fun load(group: BodyGroup): Double = groups.firstOrNull { it.group == group }?.sets ?: 0.0
 }
 
+/** Объём одной тренировки для списка истории. `GET /api/stats/volumes`. */
+@Serializable
+data class WorkoutVolume(
+    val workoutId: Uuid,
+    val volumeKg: Double,
+    /** Подходы, у которых объём должен быть, но неизвестен: нет веса или повторов. */
+    val unknownSets: Int = 0,
+)
+
+/** Объём каждой тренировки — как в [compare]: сделанные подходы, вес тела [bodyweightFor]. */
+fun workoutVolumes(
+    workouts: List<Workout>,
+    sets: List<SetFact>,
+    exercises: Map<Uuid, Exercise>,
+    measurements: List<Measurement> = emptyList(),
+): List<WorkoutVolume> {
+    val byWorkout = sets.filter { it.done && !it.deleted }.groupBy { it.workoutId }
+    return workouts.filter { !it.deleted }.map { w ->
+        val bw = bodyweightFor(w, measurements)
+        val volumes = byWorkout[w.id].orEmpty().filter { it.hasVolume(exercises[it.exerciseId]) }.map { it.volume(exercises[it.exerciseId], bw) }
+        WorkoutVolume(w.id, volumes.sumOf { it ?: 0.0 }, volumes.count { it == null })
+    }
+}
+
 /**
  * Сводка за `from..to` включительно. Считаются сделанные и не удалённые подходы неудалённых
  * тренировок; мышцы — из справочника по упражнению подхода, объём — как в [compare] с весом

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Гантель, как у значка PWA (app/src/wasmJsMain/resources/icon-512.png) -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/icon_bg" />
+    <foreground android:drawable="@drawable/ic_dumbbell" />
+    <monochrome android:drawable="@drawable/ic_dumbbell" />
+</adaptive-icon>

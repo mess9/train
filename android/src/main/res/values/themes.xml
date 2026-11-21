@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Тёмный фон приложения (C.Bg) сразу, до первого кадра Compose: без белой вспышки при запуске -->
+    <style name="Theme.Train" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+    <color name="bg">#FF0F1012</color>
+    <color name="icon_bg">#FF121212</color>
+    <color name="icon_fg">#FFC8F25A</color>
+</resources>

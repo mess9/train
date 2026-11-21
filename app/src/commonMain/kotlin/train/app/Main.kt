@@ -21,6 +21,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -165,21 +166,47 @@ private fun Connect(app: AppState) {
     var key by remember { mutableStateOf(app.key.orEmpty()) }
     Page {
         Header("Тренировки", "Подключение")
-        Txt("Ключ выдаёт `gym admin key` — вставьте его или откройте ссылку из QR-кода.", T.meta.copy(color = C.Soft))
+        if (serverConfigurable) {
+            Txt("Ссылку с ключом выдаёт `gym admin key` — вставьте её целиком: https://…/#key=…", T.meta.copy(color = C.Soft))
+        } else {
+            Txt("Ключ выдаёт `gym admin key` — вставьте его или откройте ссылку из QR-кода.", T.meta.copy(color = C.Soft))
+        }
         Gap(16.dp)
-        TextArea(key, { key = it }, "Ключ", singleLine = true, minHeight = 46.dp)
+        TextArea(key, { key = it }, if (serverConfigurable) "Ссылка с ключом" else "Ключ", singleLine = true, minHeight = 46.dp)
         Gap(12.dp)
         val error = app.connectError ?: if (app.key != null) linkText(app.link) else null
         if (error != null) {
             LateTag(error)
             Gap(12.dp)
         }
-        if (app.link == Link.ACCESS_LOGIN) {
+        val access = if (serverConfigurable) accessFields() else null
+        if (!serverConfigurable && app.link == Link.ACCESS_LOGIN) {
             Btn("Войти в Cloudflare", ::openLogin, Modifier.fillMaxWidth(), Kind.Ghost)
             Gap(8.dp)
         }
-        Btn(if (app.refreshing) "Подключаю…" else "Подключить", { app.connect(key) }, Modifier.fillMaxWidth(), enabled = !app.refreshing, big = true)
+        Btn(
+            if (app.refreshing) "Подключаю…" else "Подключить",
+            { access?.let { (id, secret) -> app.setAccess(id, secret) }; app.connect(key) },
+            Modifier.fillMaxWidth(), enabled = !app.refreshing, big = true,
+        )
     }
+}
+
+/**
+ * Сервисный токен Cloudflare Access — у APK вместо входа через браузер (как у `health-sync` и CLI).
+ * Возвращает введённое: пара Client-Id и Secret; сохраняет вызывающий.
+ */
+@Composable
+private fun accessFields(): Pair<String, String> {
+    var id by remember { mutableStateOf(DeviceStorage.read(CF_ID_KEY).orEmpty()) }
+    var secret by remember { mutableStateOf(DeviceStorage.read(CF_SECRET_KEY).orEmpty()) }
+    Txt("Cloudflare Access — если сервер за ним: сервисный токен, как у CLI.", T.meta)
+    Gap(8.dp)
+    TextArea(id, { id = it }, "CF-Access-Client-Id", singleLine = true, minHeight = 46.dp)
+    Gap(8.dp)
+    TextArea(secret, { secret = it }, "CF-Access-Client-Secret", singleLine = true, minHeight = 46.dp)
+    Gap(12.dp)
+    return id to secret
 }
 
 @Composable
@@ -198,7 +225,7 @@ private fun Settings(app: AppState) {
                 app.cache.savedAt?.let { Txt("Данные с сервера: ${it.date().dayMonth()}, ${it.clock()}", T.meta) }
             }
         }
-        if (app.link == Link.ACCESS_LOGIN) {
+        if (!serverConfigurable && app.link == Link.ACCESS_LOGIN) {
             Gap(10.dp)
             Btn("Войти в Cloudflare", ::openLogin, Modifier.fillMaxWidth(), Kind.Ghost)
         }
@@ -226,11 +253,20 @@ private fun Settings(app: AppState) {
             LateTag(it)
         }
         Gap(8.dp)
-        var haptics by remember { mutableStateOf(hapticsOn) }
-        CheckRow("Отклик на нажатия", "Короткий толчок на кнопках и оценках, у каждой оценки свой. Настройка этого телефона", haptics) {
-            haptics = !haptics
-            hapticsOn = haptics
-            if (haptics) haptic(Haptic.Normal)
+        if (tapHaptics) {
+            var haptics by remember { mutableStateOf(hapticsOn) }
+            CheckRow("Отклик на нажатия", "Короткий толчок на кнопках и оценках, у каждой оценки свой. Настройка этого телефона", haptics) {
+                haptics = !haptics
+                hapticsOn = haptics
+                if (haptics) haptic(Haptic.Normal)
+            }
+        } else {
+            CheckRow(
+                "Отклик на нажатия",
+                "Работает в приложении для Android. Браузеру короткие толчки на оценках система глушит",
+                on = false,
+                enabled = false,
+            ) {}
         }
 
         Section("Версия")
@@ -238,19 +274,36 @@ private fun Settings(app: AppState) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 val mine = appBuild()
                 val info = app.serverInfo
-                // Версия проекта общая (ADR 0009): приложение с сервера той же сборки — та же версия с коммитом
-                val version = info?.takeIf { it.app == mine }?.version ?: TRAIN_VERSION
-                Txt("Приложение: $version · ${mine.take(8)}", T.meta)
+                if (serverConfigurable) {
+                    // APK обновляется сам по себе, сборку PWA на сервере с ним не сравнить
+                    Txt("Приложение: APK $mine", T.meta)
+                } else {
+                    // Версия проекта общая (ADR 0009): приложение с сервера той же сборки — та же версия с коммитом
+                    val version = info?.takeIf { it.app == mine }?.version ?: TRAIN_VERSION
+                    Txt("Приложение: $version · ${mine.take(8)}", T.meta)
+                }
                 Txt("Сервер: " + (info?.let { i -> listOfNotNull(i.version, i.build?.let { "сборка $it" }).joinToString(" · ") } ?: "нет данных"), T.meta)
                 val served = info?.app
-                if (served != null && served != mine) {
+                if (!serverConfigurable && served != null && served != mine) {
                     Txt("На сервере приложение ${served.take(8)}. Закройте приложение и откройте снова.", T.meta.copy(color = C.Lime))
                 }
             }
         }
 
+        if (serverConfigurable) {
+            Section("Сервер")
+            Txt(serverOrigin().ifEmpty { "не задан" }, T.meta)
+            Gap(10.dp)
+            val access = accessFields()
+            Btn("Сохранить токен", { app.setAccess(access.first, access.second); app.refresh() }, Modifier.fillMaxWidth(), Kind.Ghost)
+        }
+
         Section("Ключ")
-        Txt("Новый ключ заменит текущий. Очередь привязана к пользователю: с ключом другого она не отправится.", T.meta)
+        Txt(
+            (if (serverConfigurable) "Ключ или ссылка с ключом: ссылка сменит и сервер. " else "") +
+                "Новый ключ заменит текущий. Очередь привязана к пользователю: с ключом другого она не отправится.",
+            T.meta,
+        )
         Gap(10.dp)
         TextArea(key, { key = it }, "Новый ключ", singleLine = true, minHeight = 46.dp)
         app.connectError?.let {
@@ -266,9 +319,10 @@ private fun Settings(app: AppState) {
 }
 
 @Composable
-private fun CheckRow(title: String, sub: String, on: Boolean, onClick: () -> Unit) {
+private fun CheckRow(title: String, sub: String, on: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.Card).tap(onClick).padding(14.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.Card)
+            .then(if (enabled) Modifier.tap(onClick) else Modifier.alpha(0.5f)).padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {

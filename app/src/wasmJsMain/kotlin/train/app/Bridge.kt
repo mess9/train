@@ -2,8 +2,19 @@
 
 package train.app
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.js.Js
 import kotlinx.browser.document
@@ -22,20 +33,49 @@ actual fun wake(on: Boolean): Unit = js("window.bridge.wake(on)")
 
 actual fun buzz(): Unit = js("navigator.vibrate && navigator.vibrate([200, 100, 200])")
 
-internal actual fun vibrate(a: Int, pause: Int, b: Int): Unit =
-    js("navigator.vibrate && navigator.vibrate(b > 0 ? [a, pause, b] : a)")
+internal actual fun vibrate(h: Haptic) = pulse(h.on, h.pause, h.on2)
+
+/** Chrome на Android молчит, если в системе выключена вибрация при касании: браузеру это не обойти. */
+private fun pulse(a: Int, pause: Int, b: Int): Unit = js("navigator.vibrate && navigator.vibrate(b > 0 ? [a, pause, b] : a)")
 
 /** Web Audio; звук разблокирован первым касанием (index.html). */
 actual fun beep(): Unit = js("window.bridge.beep()")
 
+/** Браузер управляет только своим звуком: чужой плеер ему не виден. */
+actual val mediaKeys: Boolean = false
+
+actual val tapHaptics: Boolean = false
+
+actual fun mediaKey(key: MediaKey) {}
+
+actual fun musicPlaying(): Boolean = false
+
 /** CSS-пиксели = dp на canvas. */
 actual fun keyboardHeight(): Int = js("window.bridge.keyboard()")
 
-/** HTML `<img>` поверх canvas: Compose анимацию gif не проигрывает. */
-actual fun showGif(id: String, url: String, key: String, x: Double, y: Double, w: Double, h: Double): Unit =
+/** Показать гифку в рамке `x, y, w, h` (dp от угла окна) с ключом API `key`. */
+private fun showGif(id: String, url: String, key: String, x: Double, y: Double, w: Double, h: Double): Unit =
     js("window.bridge.showGif(id, url, key, x, y, w, h)")
 
-actual fun hideGif(id: String): Unit = js("window.bridge.hideGif(id)")
+private fun hideGif(id: String): Unit = js("window.bridge.hideGif(id)")
+
+/** HTML `<img>` поверх canvas: Compose анимацию gif не проигрывает. Место под неё держит Box. */
+@Composable
+actual fun Gif(app: AppState, mediaKey: String, modifier: Modifier) {
+    val density = LocalDensity.current.density
+    val id = "gif-$mediaKey"
+    DisposableEffect(id) { onDispose { hideGif(id) } }
+    Box(
+        modifier.clip(RoundedCornerShape(16.dp)).background(C.Thumb).onGloballyPositioned { c ->
+            val p = c.positionInWindow()
+            showGif(
+                id, "/media/$mediaKey.gif", app.key.orEmpty(),
+                (p.x / density).toDouble(), (p.y / density).toDouble(),
+                (c.size.width / density).toDouble(), (c.size.height / density).toDouble(),
+            )
+        },
+    )
+}
 
 /** Страница из сети, мимо service worker. */
 actual fun openLogin(): Unit = js("location.href = '/?login=1'")
@@ -75,6 +115,8 @@ actual object DeviceStorage : Storage {
 }
 
 actual fun serverOrigin(): String = window.location.origin
+
+actual val serverConfigurable: Boolean = false
 
 actual fun httpClient(): HttpClient = HttpClient(Js) { followRedirects = false }
 

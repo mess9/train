@@ -1,17 +1,27 @@
 package train.app
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -20,17 +30,20 @@ import train.client.Link
 import train.core.BODYFAT
 import train.core.BODYFAT_PHOTO
 import train.core.BODYWEIGHT
+import train.core.Comparison
 import train.core.FOLD_ABDOMEN
 import train.core.FOLD_CHEST
 import train.core.FOLD_THIGH
 import train.core.ItemComparison
 import train.core.ItemOutcome
 import train.core.Measurement
+import train.core.Rating
 import train.core.RecordType
 import train.core.SetStatus
 import train.core.SetValues
 import train.core.Workout
 import train.core.outcome
+import kotlin.math.roundToLong
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -56,7 +69,10 @@ fun AppState.weightOf(w: Workout): Measurement? =
 @Composable
 fun History(app: AppState) {
     val list = app.cache.workouts.filter { !it.deleted && it.finishedAt != null }.sortedByDescending { it.startedAt }
-    LaunchedEffect(Unit) { app.progress.loadPhotos() }
+    LaunchedEffect(Unit) {
+        app.progress.loadPhotos()
+        app.loadVolumes()
+    }
     Page {
         Header("Что было", "История")
         StatusTags(app)
@@ -78,6 +94,7 @@ private fun HistoryCard(app: AppState, w: Workout) {
     val dislikes = items.count { it.disliked }
     val weight = app.weightOf(w)
     val photos = app.progress.photos.count { it.workoutId == w.id }
+    val volume = app.volumes[w.id]
     Surface(Modifier.fillMaxWidth().tap { app.go(Screen.HistoryDetail(w.id)) }, radius = 14.dp) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -86,6 +103,10 @@ private fun HistoryCard(app: AppState, w: Workout) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     w.minutes()?.let { IconText(Icon.Clock, "$it мин") }
                     IconText(Icon.Dumbbell, "${items.size} упр")
+                    // Звёздочка — часть подходов без веса или повторов: объём больше показанного
+                    volume?.takeIf { it.volumeKg > 0 }?.let {
+                        IconText(Icon.Layers, "объём ${thousands(it.volumeKg.roundToLong())}${if (it.unknownSets > 0) "*" else ""} кг")
+                    }
                     if (hearts > 0) IconText(Icon.Heart, "$hearts", iconColor = C.Heart, fill = true)
                     if (dislikes > 0) IconText(Icon.Dislike, "$dislikes", iconColor = C.Dislike, fill = true)
                     weight?.let { IconText(Icon.Scale, num(it.value) + " кг") }
@@ -106,6 +127,69 @@ fun HistoryDetail(app: AppState, id: Uuid) {
         app.progress.loadPhotos()
     }
     val c = app.comparisons[id]
+    var confirm by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize()) {
+        HistoryPage(app, id, w, c) {
+            app.eraseError = null
+            confirm = true
+        }
+        if (confirm && w != null) {
+            Sheet({ if (!app.erasing) confirm = false }) {
+                EraseSheet(app, w, onCancel = { confirm = false }) {
+                    confirm = false
+                    app.back()
+                }
+            }
+        }
+    }
+}
+
+/** «Удалить насовсем»: подходы стираются и на сервере, замеры и фото остаются без привязки. */
+@Composable
+private fun EraseSheet(app: AppState, w: Workout, onCancel: () -> Unit, onDone: () -> Unit) {
+    Txt("Удалить тренировку насовсем?", ts(17.sp, weight = FontWeight.Bold))
+    Txt(
+        "${(w.date ?: w.startedAt.date()).long()} · ${app.workoutTitle(w)}. Подходы, оценки и заметки сотрутся на телефоне и на " +
+            "сервере, без корзины — вернуть не получится. Замеры и фото останутся, но без привязки к тренировке; план, " +
+            "по которому она шла, снова станет не начатым.",
+        ts(14.sp, C.Soft),
+    )
+    app.eraseError?.let { Txt(it, ts(14.sp, C.Danger, FontWeight.Medium)) }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Btn("Отмена", onCancel, Modifier.weight(1f), Kind.Ghost, enabled = !app.erasing)
+        DangerBtn(if (app.erasing) "Удаляю…" else "Удалить", Modifier.weight(1f), enabled = !app.erasing) { app.eraseWorkout(w.id, onDone) }
+    }
+}
+
+@Composable
+private fun DangerBtn(label: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+    Row(
+        modifier.alpha(if (enabled) 1f else 0.5f).clip(RoundedCornerShape(14.dp)).background(Rating.HARD.dim())
+            .border(1.dp, C.Danger.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
+            .then(if (enabled) Modifier.tap(onClick) else Modifier).padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+    ) {
+        Ico(Icon.Trash, 18.dp, C.Danger)
+        Txt(label, ts(15.sp, C.Danger, FontWeight.Bold))
+    }
+}
+
+/** Ссылка внизу разбора: удаление — редкое действие, не на виду. */
+@Composable
+private fun EraseLink(onClick: () -> Unit) {
+    Row(
+        Modifier.padding(top = 28.dp).clip(RoundedCornerShape(10.dp)).tap(onClick).padding(horizontal = 6.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Ico(Icon.Trash, 16.dp, C.Danger)
+        Txt("Удалить тренировку", ts(14.sp, C.Danger, FontWeight.SemiBold))
+    }
+}
+
+@Composable
+private fun HistoryPage(app: AppState, id: Uuid, w: Workout?, c: Comparison?, onErase: () -> Unit) {
     Page {
         BackLink("История", app::back)
         if (w == null) {
@@ -158,6 +242,7 @@ fun HistoryDetail(app: AppState, id: Uuid) {
         if (c == null) {
             Section("Упражнения")
             Txt(if (app.link == Link.ONLINE) "Загружаю разбор…" else "Разбор придёт с сервера, когда будет связь", T.meta)
+            EraseLink(onErase)
             return@Page
         }
         val tints = tints(c.blocks.map { it.role })
@@ -172,6 +257,7 @@ fun HistoryDetail(app: AppState, id: Uuid) {
             Gap(8.dp)
             Txt("Ещё ${c.unplaced.size} ${plural(c.unplaced.size, "подход", "подхода", "подходов")} вне раскладки", T.meta)
         }
+        EraseLink(onErase)
     }
 }
 

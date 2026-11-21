@@ -224,6 +224,11 @@ enum class Icon(vararg val paths: String) {
     Close("M6 6l12 12", "M18 6L6 18"),
     Trash("M4.5 7h15", "M9.5 7V4.5h5V7", "M6.5 7l1 13h9l1-13", "M10 11v5", "M14 11v5"),
     Next("M9 6l6 6-6 6"),
+    /** Плеер: залитые, с [Ico] `fill`. */
+    Play("M8 5.5v13l10.5-6.5z"),
+    Pause("M7 5.5h3.5v13H7z", "M13.5 5.5H17v13h-3.5z"),
+    TrackPrev("M6.5 6v12", "M18 6v12l-9-6z"),
+    TrackNext("M17.5 6v12", "M6 6v12l9-6z"),
     Skip(circle(12f, 12f, 8f), "M6.5 17.5l11-11"),
     Clock(circle(12f, 12f, 8f), "M12 8v4h3.5"),
     Layers("M12 4l8 4-8 4-8-4z", "M4 12l8 4 8-4", "M4 16l8 4 8-4"),

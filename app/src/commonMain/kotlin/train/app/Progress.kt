@@ -70,6 +70,11 @@ class Progress(
         private set
     private var photosLoading = false
 
+    /** Тренировку стёрли: её фото остаются, но уже ни к чему не привязаны — как на сервере. */
+    fun unlinkWorkout(id: Uuid) {
+        photos = photos.map { if (it.workoutId == id) it.copy(workoutId = null) else it }
+    }
+
     fun loadPhotos(force: Boolean = false) {
         if ((photosLoaded && !force) || photosLoading) return
         photosLoading = true

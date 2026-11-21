@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 108 dp адаптивного значка, гантель — в безопасной зоне 66 dp по центру -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="@color/icon_fg"
+        android:pathData="M26.5,35 L36,35 L37.5,36.5 L37.5,46 L70.5,46 L70.5,36.5 L72,35 L81.5,35 L83,36.5 L83,71.5 L81.5,73 L72,73 L70.5,71.5 L70.5,62 L37.5,62 L37.5,71.5 L36,73 L26.5,73 L25,71.5 L25,36.5 Z" />
+</vector>

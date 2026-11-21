@@ -56,6 +56,7 @@ import train.core.User
 import train.core.UserCreate
 import train.core.UserCreated
 import train.core.WeekSummary
+import train.core.WorkoutVolume
 import train.core.Workout
 import train.core.WorkoutDetail
 import kotlin.uuid.Uuid
@@ -77,12 +78,13 @@ sealed interface PutResult<T> {
  */
 class ApiClient(
     private val http: HttpClient,
-    baseUrl: String,
+    /** Адрес сервера. Меняется у APK: сервер задаёт ссылка подключения, а клиент уже создан. */
+    var baseUrl: String,
     var key: String? = null,
     private val extraHeaders: Map<String, String> = emptyMap(),
 ) {
-    private val root = baseUrl.trimEnd('/')
-    private val api = root + API_PREFIX
+    private val root get() = baseUrl.trimEnd('/')
+    private val api get() = root + API_PREFIX
 
     suspend fun info(): ServerInfo = get("/info")
 
@@ -148,9 +150,19 @@ class ApiClient(
 
     suspend fun compare(workoutId: Uuid): Comparison = get("/workouts/$workoutId/compare")
 
+    /**
+     * Удалить тренировку насовсем, мимо корзины: подходы и их история стираются, замеры и фото
+     * остаются без привязки, начатый ею план — снова не начат.
+     */
+    suspend fun eraseWorkout(id: Uuid) = call(HttpMethod.Delete, "/workouts/$id")
+
     /** Сводка за период: мышцы, участки тела, минуты по дням. Без дат — последние 30 дней. */
     suspend fun stats(from: LocalDate? = null, to: LocalDate? = null): Stats =
         get("/stats" + query("from" to from?.toString(), "to" to to?.toString()))
+
+    /** Объём каждой тренировки за период; без дат — последние 120 дней. */
+    suspend fun volumes(from: LocalDate? = null, to: LocalDate? = null): List<WorkoutVolume> =
+        get("/stats/volumes" + query("from" to from?.toString(), "to" to to?.toString()))
 
     /** Недели с понедельника, старые сначала. Без дат — восемь недель по текущую. */
     suspend fun weeks(from: LocalDate? = null, to: LocalDate? = null): List<WeekSummary> =

@@ -35,10 +35,11 @@ compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.re
 compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose" }
 compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose" }
 
-# Android-приложение синхронизации (android/)
+# Android: health-sync и APK приложения (android/)
 health-connect = { module = "androidx.health.connect:connect-client", version.ref = "health-connect" }
 work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 activity = { module = "androidx.activity:activity-ktx", version.ref = "activity" }
+activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activity" }
 
 # Версии расширений Quarkus — из BOM
 quarkus-bom = { module = "io.quarkus.platform:quarkus-bom", version.ref = "quarkus" }

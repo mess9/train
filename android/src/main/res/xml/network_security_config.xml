@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Боевой сервер — только HTTPS. HTTP — для локального сервера разработки через `adb reverse tcp:7313 tcp:7313`
+     (на адрес хоста 10.0.2.2 quarkusDev отвечает 400: чужой Host) -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>
