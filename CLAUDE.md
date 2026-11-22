@@ -108,6 +108,9 @@ skillshare, так что правка в репо = правка skill).
 - Конфигурация `server` в `launch.json` собирает главную папку, не worktree. Из worktree —
   своя временная запись (не коммитить): `cmd /c "set PORT=7314&& <worktree>\gradlew.bat -p
   <worktree> :server:quarkusDev -Ddebug=false"` — порт и отладчик 5005 не спорят с главной.
+- Сборка, пересобравшая jar `core` (`:core:jvmTest`, `:server:test`), ломает уже запущенный
+  quarkusDev: на каждый запрос «Error restarting Quarkus … Invalid local file header signature»,
+  сам не оживает. Свой — перезапустить; чужой (другой сессии) не трогать, поднять свой на 7314 той же записью.
 - Правка `app` при запущенном сервере — `./gradlew :server:appDist`, затем две перезагрузки
   страницы (service worker).
 - Приложение в превью открывать на `http://127.0.0.1:7313/#key=dev-key`: у `localhost` своё
@@ -115,10 +118,16 @@ skillshare, так что правка в репо = правка skill).
 - Сессия от прошлой базы и на `127.0.0.1` («ключ другого пользователя», незакрытая тренировка):
   `localStorage.clear()` не хватит, приложение при выгрузке пишет её обратно. Очищать одним
   скриптом: `localStorage.clear(); Storage.prototype.setItem = () => {}; location.reload()`.
+- «Открыто в другой вкладке», хотя вкладка одна: замок `active-workout` держит невидимый клиент
+  (`await navigator.locks.query()` — чужой `clientId`), «Обновить» и переход не помогают. Открыть
+  на другом origin (`localhost` ↔ `127.0.0.1`) и очистить его хранилище тем же скриптом.
 - Жесты скриптом: холст Compose в shadow root —
   `[...document.querySelectorAll('div')].find(d => d.shadowRoot).shadowRoot.querySelector('canvas')`,
   в него `PointerEvent` `pointerdown`/`pointermove`/`pointerup` (`pointerType: 'touch'`).
   Долгое нажатие — пауза ≥ 700 мс между `down` и первым `move`.
+  Клик мышью из `computer` по `tap` срабатывает не всегда — надёжнее такое касание. Координаты
+  `clientX/Y` — CSS-пиксели: точку со скриншота умножить на `innerWidth` / ширину кадра скриншота
+  (в превью 1024 / 800). Ctrl+A в поле Compose текст не выделяет — стирать Backspace.
 - Скрытая панель превью рисует ~3 кадра/с (на телефоне 60): рывок «на один кадр» в ней не
   виден. Сдвиг, который должен встать в кадр вместе со сменой раскладки, — в обычном состоянии
   синхронно, а не в `scope.launch { animatable.snapTo }`: корутина приходит кадром позже.

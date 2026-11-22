@@ -337,7 +337,7 @@ class ProfileGet : ApiCommand("get", "Профиль") {
     override suspend fun exec() = out(api.profile())
 }
 
-class ProfilePut : ApiCommand("put", "Заменить профиль. JSON: {name?, equipment?, notes?, vibration?, heightCm?, birthDate?}") {
+class ProfilePut : ApiCommand("put", "Заменить профиль. JSON: {name?, equipment?, notes?, vibration?, timerPresets?, heightCm?, birthDate?}") {
     private val file by argument(help = "файл JSON или - для stdin")
     override suspend fun exec() {
         val text = readInput(file)

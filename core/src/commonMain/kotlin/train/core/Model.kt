@@ -71,6 +71,8 @@ data class Profile(
     val equipment: String? = null,
     val notes: String? = null,
     val vibration: Boolean = false,
+    /** Пресеты таймера в шапке тренировки, секунды по возрастанию; пусто — [DEFAULT_TIMER_PRESETS]. */
+    val timerPresets: List<Int> = emptyList(),
     /** Рост, см. В объём не входит (в нём нет расстояния), агент видит его рядом с весом тела. */
     val heightCm: Double? = null,
     /** Дата рождения: возраст для процента жира по складкам ([bodyFatJp3]). */

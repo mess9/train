@@ -32,6 +32,49 @@ fun BlockPasses.restTimer(item: LayoutItem, setNo: Int, now: Instant): RestTimer
     }
 }
 
+/** Пресеты таймера, пока владелец не задал свои (`Profile.timerPresets`). */
+val DEFAULT_TIMER_PRESETS = listOf(30, 60, 90, 120, 180)
+
+/** Больше пресетов лист таймера не уложит в две строки. */
+const val MAX_TIMER_PRESETS = 10
+
+/** Самый длинный пресет — 99:59. */
+const val MAX_TIMER_PRESET_SEC = 99 * 60 + 59
+
+/** Пресеты профиля или, если их нет, по умолчанию. */
+val Profile?.presets: List<Int> get() = this?.timerPresets?.takeIf { it.isNotEmpty() } ?: DEFAULT_TIMER_PRESETS
+
+/** «1:10», «0:35», «5:00». */
+fun presetText(sec: Int): String = "${sec / 60}:${(sec % 60).toString().padStart(2, '0')}"
+
+/**
+ * Пресеты из текста настройки: по одному на строку (годятся и запятые, пробелы), «м:сс» или
+ * секунды числом — «1:10», «35», «5:00». Итог — без повторов, по возрастанию. Ошибка — текстом
+ * для владельца, с тем, что не разобрано.
+ */
+fun parseTimerPresets(text: String): Result<List<Int>> {
+    val parts = text.split(Regex("""[\s,;]+""")).map { it.trim() }.filter { it.isNotEmpty() }
+    if (parts.isEmpty()) return Result.failure(IllegalArgumentException("Нужно хотя бы одно время"))
+    val out = mutableListOf<Int>()
+    for (p in parts) {
+        val sec = presetSeconds(p) ?: return Result.failure(IllegalArgumentException("«$p» — не время: нужно «м:сс» или секунды, например 1:10 или 35"))
+        if (sec !in 1..MAX_TIMER_PRESET_SEC) return Result.failure(IllegalArgumentException("«$p» — от 0:01 до 99:59"))
+        out += sec
+    }
+    val sorted = out.distinct().sorted()
+    if (sorted.size > MAX_TIMER_PRESETS) return Result.failure(IllegalArgumentException("Не больше $MAX_TIMER_PRESETS времён, сейчас ${sorted.size}"))
+    return Result.success(sorted)
+}
+
+private fun presetSeconds(p: String): Int? {
+    val m = Regex("""(\d{1,2}):(\d{2})""").matchEntire(p)
+    if (m != null) {
+        val (min, sec) = m.destructured
+        return sec.toInt().takeIf { it < 60 }?.let { min.toInt() * 60 + it }
+    }
+    return p.takeIf { it.length <= 4 && it.all(Char::isDigit) }?.toInt()
+}
+
 /** Таймер и секундомер из шапки тренировки: живут в памяти, пока открыто приложение. */
 data class Tools(
     val tab: Int = 0,

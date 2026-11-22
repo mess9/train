@@ -29,7 +29,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import train.client.Link
+import train.core.DEFAULT_TIMER_PRESETS
 import train.core.TRAIN_VERSION
+import train.core.parseTimerPresets
+import train.core.presetText
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -270,6 +273,8 @@ private fun Settings(app: AppState) {
             ) {}
         }
 
+        TimerPresets(app)
+
         Section("Версия")
         Surface(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -316,6 +321,53 @@ private fun Settings(app: AppState) {
 
         Section("Проверка")
         CheckRow("Пауза отправки", "Отметки копятся в очереди и не уходят на сервер", app.paused) { app.pauseSending(!app.paused) }
+    }
+}
+
+/**
+ * Времена на кнопках таймера в шапке тренировки. Правка — текстом, по одному на строку: так
+ * быстрее, чем кнопками добавлять и убирать. Сохраняются по возрастанию в профиле на сервере.
+ */
+@Composable
+private fun TimerPresets(app: AppState) {
+    var text by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val own = app.cache.profile?.timerPresets.orEmpty().isNotEmpty()
+    Section("Таймер")
+    Txt("Времена на кнопках таймера в шапке тренировки — общие для всех устройств.", T.meta)
+    Gap(10.dp)
+    val editing = text
+    if (editing == null) {
+        Surface(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Txt(app.timerPresets.joinToString(" · ") { presetText(it) }, T.strong)
+                Txt(if (own) "Свои" else "По умолчанию", T.meta)
+            }
+        }
+        Gap(10.dp)
+        Btn("Изменить времена", { text = app.timerPresets.joinToString("\n") { presetText(it) }; error = null }, Modifier.fillMaxWidth(), Kind.Ghost)
+    } else {
+        Txt("По одному на строку: минуты:секунды или секунды — 1:10, 35, 5:00. Порядок любой: отсортируются сами.", T.meta)
+        Gap(8.dp)
+        TextArea(editing, { text = it; error = null }, "1:00", minHeight = 160.dp)
+        error?.let {
+            Gap(8.dp)
+            LateTag(it)
+        }
+        Gap(10.dp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Btn("Отмена", { text = null }, Modifier.weight(1f), Kind.Ghost)
+            Btn("Сохранить", {
+                parseTimerPresets(editing).fold(
+                    { app.setTimerPresets(if (it == DEFAULT_TIMER_PRESETS) emptyList() else it); text = null },
+                    { error = it.message },
+                )
+            }, Modifier.weight(1f))
+        }
+        if (own) {
+            Gap(8.dp)
+            Btn("Вернуть по умолчанию", { app.setTimerPresets(emptyList()); text = null }, Modifier.fillMaxWidth(), Kind.Ghost)
+        }
     }
 }
 

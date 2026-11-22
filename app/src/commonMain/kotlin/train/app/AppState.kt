@@ -52,6 +52,7 @@ import train.core.loadSession
 import train.core.measure
 import train.core.moveItem
 import train.core.newId
+import train.core.presets
 import train.core.saveSession
 import train.core.snapshot
 import train.core.start
@@ -487,6 +488,12 @@ class AppState(private val scope: CoroutineScope) {
 
     /** Включить или выключить вибрацию. */
     fun setVibration(on: Boolean) = updateProfile { it.copy(vibration = on) }
+
+    /** Пресеты таймера, секунды по возрастанию: свои из профиля или по умолчанию. */
+    val timerPresets: List<Int> get() = cache.profile.presets
+
+    /** Свои пресеты таймера, уже разобранные и отсортированные; пусто — вернуть по умолчанию. */
+    fun setTimerPresets(sec: List<Int>) = updateProfile { it.copy(timerPresets = sec) }
 
     /** Рост, см: агент видит его рядом с весом тела. `null` — стереть. */
     fun setHeight(cm: Double?) = updateProfile { it.copy(heightCm = cm) }

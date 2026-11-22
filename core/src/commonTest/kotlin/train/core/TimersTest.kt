@@ -34,6 +34,19 @@ class TimersTest {
         assertEquals(60_000, t.timerToggle(T0 + 200.seconds).timerLeftMs(T0 + 200.seconds), "после нуля — заново на всю длину")
     }
 
+    @Test
+    fun timerPresetsParseSortAndReject() {
+        // Пример владельца: строки «м:сс» и секунды числом — по возрастанию
+        assertEquals(listOf(35, 60, 70, 300), parseTimerPresets("1:10\n1:00\n35\n5:00").getOrThrow())
+        assertEquals(listOf(30, 90), parseTimerPresets(" 90, 0:30 ,1:30 ").getOrThrow(), "повтор 1:30 = 90 убран")
+        assertEquals(listOf("1:10", "0:35"), listOf(70, 35).map(::presetText))
+        for (bad in listOf("", "  \n ", "1:75", "abc", "0", "0:00", "100:00", "1.5", (1..11).joinToString { "$it" })) {
+            assertTrue(parseTimerPresets(bad).isFailure, "«$bad» не принят")
+        }
+        assertEquals(DEFAULT_TIMER_PRESETS, Profile().presets)
+        assertEquals(listOf(45), Profile(timerPresets = listOf(45)).presets)
+    }
+
     private val press = exercise("Жим")
     private val pull = exercise("Подтягивания", type = RecordType.REPS)
     private val plank = exercise("Планка", type = RecordType.TIME)

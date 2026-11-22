@@ -309,8 +309,13 @@ class ApiTest {
     fun profileAndTrash() {
         val api = newUser()
         assertEquals(Profile(), api.get<Profile>("/api/profile"))
-        val p = Profile(name = "Я", equipment = "гантели до 24 кг", vibration = true)
+        val p = Profile(name = "Я", equipment = "гантели до 24 кг", vibration = true, timerPresets = listOf(35, 60, 70, 300))
         api.put<_, Profile>("/api/profile", p)
+        assertEquals(p, api.get<Profile>("/api/profile"))
+        // Пресеты — как их сохраняет настройка: без повторов и по возрастанию
+        for (bad in listOf(listOf(60, 35), listOf(60, 60), listOf(0), listOf(6000))) {
+            assertEquals(400, api.spec().body(TrainJson.encodeToString(Profile.serializer(), p.copy(timerPresets = bad))).put("/api/profile").statusCode, "$bad")
+        }
         assertEquals(p, api.get<Profile>("/api/profile"))
 
         val bench = api.exercise()

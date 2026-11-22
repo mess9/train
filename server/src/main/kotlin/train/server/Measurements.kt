@@ -9,6 +9,8 @@ import jakarta.ws.rs.QueryParam
 import org.jboss.resteasy.reactive.RestResponse
 import train.core.API_PREFIX
 import train.core.Measurement
+import train.core.MAX_TIMER_PRESETS
+import train.core.MAX_TIMER_PRESET_SEC
 import train.core.Profile
 import train.core.Purged
 import train.core.SyncPut
@@ -88,6 +90,10 @@ class ProfileResource(private val db: Db, private val user: CurrentUser) {
     fun put(body: Profile): Profile {
         body.heightCm?.let { if (it !in 50.0..260.0) throw badRequest("heightCm — рост в сантиметрах, от 50 до 260") }
         body.birthDate?.let { if (it.year !in 1900..2030) throw badRequest("birthDate — дата рождения, например 1989-05-09") }
+        val presets = body.timerPresets
+        if (presets.size > MAX_TIMER_PRESETS || presets.any { it !in 1..MAX_TIMER_PRESET_SEC } || presets != presets.distinct().sorted()) {
+            throw badRequest("timerPresets — до $MAX_TIMER_PRESETS разных секунд по возрастанию, от 1 до $MAX_TIMER_PRESET_SEC")
+        }
         db.update("update app_user set profile = cast(? as jsonb) where id = ?", Json.of(Profile.serializer(), body), user.id)
         return body
     }

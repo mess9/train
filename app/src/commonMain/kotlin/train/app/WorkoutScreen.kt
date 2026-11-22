@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -45,6 +46,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.time.Clock
@@ -694,11 +696,17 @@ private fun RestBar(app: AppState, rest: RestTimer, now: Instant) {
     }
 }
 
-private val presets = listOf(30, 60, 90, 120, 180)
-
 @Composable
 private fun ToolsSheet(app: AppState, now: Instant) {
     val t = app.tools
+    val presets = app.timerPresets
+    // Нетронутый таймер стоит на 1:30 из кода; у своих времён его может не быть — ближайшее из них
+    LaunchedEffect(presets) {
+        val cur = app.tools
+        if (!cur.timerRunning && cur.timerLeft == cur.timerDur && cur.timerDur !in presets) {
+            app.tools = cur.timerPreset(presets.minBy { abs(it - cur.timerDur) })
+        }
+    }
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.Field).padding(4.dp)) {
         listOf("Таймер", "Секундомер").forEachIndexed { i, label ->
             val on = t.tab == i
@@ -715,7 +723,12 @@ private fun ToolsSheet(app: AppState, now: Instant) {
         val leftMs = t.timerLeftMs(now)
         val finished = t.timerFinished(now)
         Txt(mmss((leftMs + 999).milliseconds), big, Modifier.fillMaxWidth().padding(vertical = 6.dp), TextAlign.Center)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
+        // Свои времена из настроек (до десяти) — переносятся на вторую строку
+        FlowRow(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             presets.forEach { p ->
                 Btn(mmss(p.seconds), { app.tools = t.timerPreset(p) }, kind = if (t.timerDur == p) Kind.ChipOn else Kind.Chip)
             }
