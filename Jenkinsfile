@@ -12,9 +12,15 @@ pipeline {
         pollSCM('H/2 * * * *')
     }
 
+    parameters {
+        booleanParam(name: 'APK', defaultValue: false, description: 'Собрать и выложить APK, даже если его код не менялся')
+    }
+
     environment {
         REGISTRY = "localhost:5000/mess9"
         IMAGE_TAG = "${env.BUILD_NUMBER}"
+        // Релизы APK — в Gitea этого репозитория, по LAN; Obtainium читает их снаружи
+        GITEA = "http://192.168.11.222:3001"
     }
 
     stages {
@@ -99,6 +105,68 @@ pipeline {
                     done
                     exit 1
                 '''
+            }
+        }
+
+        // APK — после деплоя, чтобы его не задерживать, и только если менялся его код (или параметр
+        // APK): иначе каждый пуш сервера давал бы релиз без изменений и обновление в Obtainium.
+        // Тег релиза = versionName (0.3.0+<коммит>) — по нему Obtainium сверяет установленную версию
+        stage('APK') {
+            when {
+                anyOf {
+                    changeset 'app/**'
+                    changeset 'android/**'
+                    changeset 'client/**'
+                    changeset 'core/**'
+                    changeset 'gradle/**'
+                    changeset 'gradle.properties'
+                    expression { params.APK }
+                }
+            }
+            steps {
+                withCredentials([
+                    file(credentialsId: 'train-apk-keystore', variable: 'KEYSTORE'),
+                    string(credentialsId: 'train-apk-password', variable: 'STORE_PASS'),
+                    string(credentialsId: 'gitea-release-token', variable: 'GITEA_TOKEN'),
+                ]) {
+                    sh '''
+                        set -eu
+                        # versionCode — число коммитов: в неполном клоне оно меньше прежнего, и APK не встанет поверх
+                        [ "$(git rev-parse --is-shallow-repository)" = false ] || git fetch --unshallow
+                        CODE=$(git rev-list --count HEAD)
+                        COMMIT=$(git rev-parse --short=7 HEAD)
+                        VERSION="$(sed -n 's/^version=//p' gradle.properties)+$COMMIT"
+
+                        rm -rf build/apk
+                        docker build --target apk-out --output type=local,dest=build/apk \
+                          --build-arg TRAIN_COMMIT="$COMMIT" --build-arg TRAIN_VERSION_CODE="$CODE" \
+                          --secret id=keystore,src="$KEYSTORE" --secret id=storepass,env=STORE_PASS .
+                        APK=build/apk/android-release.apk
+                        [ -f "$APK" ] || { echo "Нет подписанного APK:"; ls -l build/apk; exit 1; }
+
+                        API="$GITEA/api/v1/repos/mess9/train/releases"
+                        status=$(curl -s -o release.json -w '%{http_code}' -X POST "$API" \
+                          -H "Authorization: token $GITEA_TOKEN" -H 'Content-Type: application/json' \
+                          -d "$(printf '{"tag_name":"%s","name":"%s","target_commitish":"%s"}' "$VERSION" "$VERSION" "$(git rev-parse HEAD)")")
+                        if [ "$status" = 409 ]; then
+                          echo "Релиз $VERSION уже есть — не выкладываю"
+                          exit 0
+                        fi
+                        [ "$status" = 201 ] || { echo "Gitea: $status"; cat release.json; exit 1; }
+                        # Первый id в ответе — сам релиз (автор и файлы идут после)
+                        ID=$(grep -o '"id":[0-9]*' release.json | head -1 | cut -d: -f2)
+                        curl -sf -o /dev/null -X POST "$API/$ID/assets?name=train-$(echo "$VERSION" | tr + -).apk" \
+                          -H "Authorization: token $GITEA_TOKEN" \
+                          -F "attachment=@$APK;type=application/vnd.android.package-archive" || {
+                            # Иначе повтор упёрся бы в 409 и оставил релиз без APK
+                            curl -s -o /dev/null -X DELETE "$API/$ID" -H "Authorization: token $GITEA_TOKEN"
+                            curl -s -o /dev/null -X DELETE "$GITEA/api/v1/repos/mess9/train/tags/$VERSION" -H "Authorization: token $GITEA_TOKEN"
+                            echo "APK не загрузился, релиз $VERSION удалён"
+                            exit 1
+                          }
+                        echo "Выложен релиз $VERSION (versionCode $CODE)"
+                    '''
+                }
             }
         }
     }

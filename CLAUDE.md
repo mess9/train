@@ -65,8 +65,8 @@ skillshare, так что правка в репо = правка skill).
   там не идёт (нужен Docker в Docker): серверные тесты — локально, перед пушем. Коммит без
   файлов из `COPY` в `Dockerfile` (доки, `.claude/`, `docs/`) берёт сборку и тесты из кэша слоёв.
 - **Android**: `./gradlew :health-sync:assembleDebug` → `health-sync/build/outputs/apk/debug/`. Он и `android`
-  включаются, только если есть `ANDROID_HOME` или `local.properties`; в `Dockerfile` папки не
-  копируют — Jenkins их не собирает. AGP 9 (Kotlin встроенный) объявлен в корне рядом с
+  включаются, только если есть `ANDROID_HOME` или `local.properties`. `health-sync` Jenkins не
+  собирает, `android` собирает только стадия `apk` в `Dockerfile` (там своё SDK). AGP 9 (Kotlin встроенный) объявлен в корне рядом с
   Kotlin-плагином: из одного `health-sync/build.gradle.kts` — «Could not create an instance of
   KotlinAndroidTarget». Quarkus — только в `server/build.gradle.kts`: в корне он поднимает JAXB
   до 4, и AGP падает на `javax/xml/bind/annotation/XmlSchema`.
@@ -74,6 +74,12 @@ skillshare, так что правка в репо = правка skill).
   `train.signing.store`, `storePassword`, `keyAlias` (по умолчанию `train`), `keyPassword` в
   `~/.gradle/gradle.properties`; без них APK неподписанный и не ставится. Плавность мерить только
   на release. `assembleDebug` — `train.app.debug`, ставится рядом с боевой.
+- **APK из Jenkins**: стадия `APK` идёт после деплоя и только при изменениях в коде APK (или с
+  параметром `APK`). Она собирает `docker build --target apk-out --output type=local,dest=build/apk`
+  и выкладывает релиз в Gitea с тегом versionName, оттуда его берёт Obtainium. Локально та же
+  команда без `--secret` даёт `android-release-unsigned.apk`. В образе нет `.git`, поэтому
+  `versionCode` и коммит передаются через `--build-arg TRAIN_VERSION_CODE/TRAIN_COMMIT`, иначе
+  versionCode 1 и APK не встанет поверх установленного.
 - APK на эмуляторе против `preview_start server`: `adb reverse tcp:7313 tcp:7313` и ссылка
   `http://127.0.0.1:7313/#key=dev-key`. На `10.0.2.2:7313` quarkusDev отвечает 400 (чужой
   `Host`), а HTTP без TLS разрешён только `localhost`/`127.0.0.1` (`network_security_config.xml`).

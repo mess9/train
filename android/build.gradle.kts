@@ -14,13 +14,15 @@ fun secret(name: String): String? =
 val keystore = secret("store")?.let(::file)?.takeIf { it.exists() }
 
 // Версия: semver проекта + коммит (ADR 0009); versionCode растёт с каждым коммитом — обновление
-// встаёт поверх только с большим кодом
+// встаёт поверх только с большим кодом. В Docker `.git` нет — оба числа передаёт Jenkins окружением
 fun git(vararg args: String): String? = runCatching {
     providers.exec { commandLine(listOf("git") + args) }.standardOutput.asText.get().trim()
 }.getOrNull()?.takeIf { it.isNotEmpty() }
 
-val commits = git("rev-list", "--count", "HEAD")?.toIntOrNull() ?: 1
-val commit = git("rev-parse", "--short=7", "HEAD")
+fun env(name: String): String? = System.getenv(name)?.takeIf { it.isNotBlank() }
+
+val commits = (env("TRAIN_VERSION_CODE") ?: git("rev-list", "--count", "HEAD"))?.toIntOrNull() ?: 1
+val commit = env("TRAIN_COMMIT") ?: git("rev-parse", "--short=7", "HEAD")
 
 android {
     namespace = "train.apk"
