@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import train.core.Plan
+import train.core.Workout
 import train.core.PlanStatus
 import train.core.finish
 import train.core.forgottenEnd
@@ -77,6 +78,7 @@ fun Home(app: AppState) {
     Page {
         Header(today.long(), "Тренировки") { IconBtn(Icon.Gear, { app.go(Screen.Settings) }, color = C.Muted, label = "Настройки") }
         StatusTags(app)
+        app.takenNotice?.let { TakenPlaque(it, app::dismissTaken) }
 
         if (active != null) {
             val end = s.forgottenEnd(now)
@@ -117,6 +119,7 @@ fun Home(app: AppState) {
                 Txt("Открыть", ts(color = C.Lime, weight = FontWeight.Bold))
             }
         }
+        if (active == null) app.elsewhere.forEach { ElsewhereRow(it, app.workoutTitle(it), today) { app.requestTake(it) } }
 
         Section("Сегодня")
         val todays = plans.filter { it.first.date == today }
@@ -127,7 +130,7 @@ fun Home(app: AppState) {
             done.forEach { (p, _) -> DoneCard(app, p) }
             if (todays.isEmpty()) {
                 Txt(if (app.cache.savedAt == null) "Планы ещё не загружены" else "На сегодня плана нет", T.meta)
-                if (active == null) Btn("Начать без плана", { app.startWorkout(null) }, Modifier.fillMaxWidth(), Kind.Ghost)
+                if (active == null) Btn("Начать без плана", { app.requestStart(null) }, Modifier.fillMaxWidth(), Kind.Ghost)
             }
         }
 
@@ -144,6 +147,83 @@ fun Home(app: AppState) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 overdue.forEach { (p, _) -> PlanCard(p, late = true) { app.go(Screen.PlanView(p.id)) } }
             }
+        }
+    }
+}
+
+/** Тренировку забрали на другом устройстве: что случилось и что пропало — чтобы не стало сюрпризом. */
+@Composable
+private fun TakenPlaque(n: TakenNotice, onDismiss: () -> Unit) {
+    Gap(12.dp)
+    Surface(Modifier.fillMaxWidth(), Color(0xFF2A1A14), Color(0xFF5A3420), 16.dp) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Txt("Тренировку «${n.title}» забрали ${kindText(n.kind)}", T.strong)
+            Txt(
+                "Дальше её ведёт то устройство, здесь она закрыта. " + if (n.lost > 0) {
+                    "Не успели уйти на сервер и пропали: ${n.lost} — отметки и правки этой тренировки отсюда."
+                } else {
+                    "Всё отмеченное здесь успело дойти до сервера — ничего не пропало."
+                },
+                T.meta,
+            )
+            Btn("Понятно", onDismiss, Modifier.fillMaxWidth(), Kind.Ghost)
+        }
+    }
+}
+
+/** Тренировка идёт на другом устройстве: её можно забрать сюда. */
+@Composable
+private fun ElsewhereRow(w: Workout, title: String, today: kotlinx.datetime.LocalDate, onTake: () -> Unit) {
+    val since = w.startedAt.let { if (it.date() == today) it.clock() else it.date().dayMonth() + " " + it.clock() }
+    Row(
+        Modifier.padding(top = 12.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Field)
+            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Txt(title, T.strong, maxLines = 1)
+            Txt("Идёт ${kindText(w.deviceKind)} с $since", T.meta)
+        }
+        Btn("Забрать", onTake, kind = Kind.Ghost)
+    }
+}
+
+/**
+ * Вопросы замка поверх экрана: забрать тренировку с другого устройства и начать новую, пока
+ * там идёт другая. Неотправленное там пропадёт — лист говорит это до того, как нажать.
+ */
+@Composable
+fun AskSheet(app: AppState) {
+    val a = app.ask ?: return
+    val close = { if (!app.taking) app.ask = null }
+    Sheet(close) {
+        val other = when (a) {
+            is Ask.Take -> a.workout
+            is Ask.Start -> a.other
+        }
+        val since = other.startedAt.let { if (it.date() == app.today()) it.clock() else it.date().dayMonth() + " " + it.clock() }
+        val where = kindText(other.deviceKind)
+        val title = app.workoutTitle(other)
+        if (a is Ask.Start) {
+            Txt("Уже идёт тренировка", ts(17.sp, weight = FontWeight.Bold))
+            Txt("«$title» — $where с $since. Забрать её сюда или начать новую? Новая не закроет ту: она так и останется идти там.", ts(14.sp, C.Soft))
+        } else {
+            Txt("Забрать тренировку сюда?", ts(17.sp, weight = FontWeight.Bold))
+            Txt("«$title» идёт $where с $since.", ts(14.sp, C.Soft))
+        }
+        Txt(
+            "Если забрать, дальше её ведёт этот телефон. Отметки, которые там ещё не дошли до сервера, пропадут — там покажется, что тренировку забрали.",
+            ts(14.sp, C.Soft),
+        )
+        app.takeError?.let { Txt(it, ts(14.sp, C.Danger, FontWeight.Medium)) }
+        Btn(if (app.taking) "Забираю…" else "Забрать", { app.takeWorkout(other.id) }, Modifier.fillMaxWidth(), enabled = !app.taking)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Btn("Отмена", close, Modifier.weight(1f), Kind.Ghost, enabled = !app.taking)
+            if (a is Ask.Start) Btn("Начать новую", {
+                app.ask = null
+                app.startWorkout(a.plan)
+            }, Modifier.weight(1f), Kind.Ghost, enabled = !app.taking)
         }
     }
 }
@@ -166,10 +246,13 @@ private fun DoneCard(app: AppState, p: Plan) {
     Surface(Modifier.fillMaxWidth().then(if (w != null) Modifier.tap { app.go(Screen.HistoryDetail(w.id)) } else Modifier), border = C.Border, radius = 18.dp) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             CardTitle(p.title) {
-                // Начата на другом устройстве и не закрыта — вести её отсюда MVP не умеет
-                if (w?.finishedAt == null) Tag("не закончена") else AccentTag("выполнено")
+                // Начата на другом устройстве и идёт там — забрать её можно строкой выше
+                if (w?.active == true) Tag("идёт ${kindText(w.deviceKind)}")
+                else if (w?.finishedAt == null) Tag("не закончена") else AccentTag("выполнено")
             }
-            Txt((minutes?.let { "$it мин · " } ?: "") + "агент проанализирует и предложит следующие", T.meta)
+            val sub = if (w?.active == true) "начата в ${w.startedAt.clock()}, ещё не закончена"
+            else (minutes?.let { "$it мин · " } ?: "") + "агент проанализирует и предложит следующие"
+            Txt(sub, T.meta)
         }
     }
 }
@@ -274,8 +357,12 @@ fun PlanView(app: AppState, id: Uuid) {
         Spacer(Modifier.height(20.dp))
         when {
             active != null -> Btn(if (active.planId == p.id) "Вернуться к тренировке" else "Идёт другая тренировка — вернуться", { app.go(Screen.Workout) }, Modifier.fillMaxWidth(), big = true)
-            status == PlanStatus.STARTED -> Txt("Тренировка по этому плану уже была", T.meta)
-            else -> Btn("Начать тренировку", { app.startWorkout(p) }, Modifier.fillMaxWidth(), big = true)
+            status == PlanStatus.STARTED -> {
+                val going = app.elsewhere.firstOrNull { it.planId == p.id }
+                if (going != null) Btn("Идёт ${kindText(going.deviceKind)} — забрать сюда", { app.requestTake(going) }, Modifier.fillMaxWidth(), big = true)
+                else Txt("Тренировка по этому плану уже была", T.meta)
+            }
+            else -> Btn("Начать тренировку", { app.requestStart(p) }, Modifier.fillMaxWidth(), big = true)
         }
     }
 }

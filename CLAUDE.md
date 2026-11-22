@@ -96,6 +96,12 @@ skillshare, так что правка в репо = правка skill).
   Сами выгрузки (Health Connect, архив Mi Fitness) хранятся в `import/health/` главной копии:
   `/import/*/` в `.gitignore`, `import/` в `.dockerignore`. В worktree их нет. В архиве
   Mi Fitness главное — `hlth_center_fitness_data.csv` (Key, Time, Value-JSON; `Sid` — браслет).
+- e2e: `npx playwright test` из `e2e/` — через PowerShell. В Git Bash `cd e2e` падает на хуке
+  fnm («can't find the necessary environment variables»), команда после `&&` не идёт, а лог
+  остаётся от прошлого прогона.
+- Замок тренировки (ADR 0007) в превью: второе устройство — запросы с `X-Device` и
+  `X-Device-Kind` (`take`, запись подхода — ждать `423`), ID браузера — `localStorage.device`.
+  Без заголовка замок не проверяется — так пишут CLI и агент.
 - Превью: `preview_start` `server` (порт 7313, ключ `dev-key`). База каждый запуск пустая —
   упражнения и план заводить через API. JSON с кириллицей — в файл и `curl --data @file`:
   из аргументов Git Bash кириллица приходит битой.

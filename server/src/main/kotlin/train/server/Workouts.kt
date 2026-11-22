@@ -3,14 +3,22 @@ package train.server
 import jakarta.transaction.Transactional
 import jakarta.ws.rs.DELETE
 import jakarta.ws.rs.GET
+import jakarta.ws.rs.HeaderParam
+import jakarta.ws.rs.POST
 import jakarta.ws.rs.PUT
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
 import jakarta.ws.rs.QueryParam
+import jakarta.ws.rs.WebApplicationException
+import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import org.jboss.resteasy.reactive.RestResponse
 import train.core.API_PREFIX
+import train.core.ApiError
 import train.core.Comparison
+import train.core.DEVICE_HEADER
+import train.core.DEVICE_KIND_HEADER
+import train.core.STATUS_LOCKED
 import train.core.SetFact
 import train.core.SyncPut
 import train.core.Workout
@@ -50,17 +58,26 @@ class WorkoutResource(
      * Старт, раскладка, финиш, комментарий — всё одной записью (ADR 0007). Первая запись с
      * планом фиксирует его старт и версию; если версия старая, план это покажет
      * (`startedVersion < version`). Вторую активную тренировку сервер не отвергает.
+     *
+     * Первая запись с [device] закрепляет тренировку за этим устройством; запись с другого — `423`
+     * (её забрали, [take]). Без [device] (CLI, агент) замок не проверяется.
      */
     @PUT
     @Path("{id}")
     @Transactional
-    fun put(@PathParam("id") id: String, body: SyncPut<Workout>): RestResponse<Workout> {
+    fun put(
+        @PathParam("id") id: String,
+        body: SyncPut<Workout>,
+        @HeaderParam(DEVICE_HEADER) device: String?,
+        @HeaderParam(DEVICE_KIND_HEADER) kind: String?,
+    ): RestResponse<Workout> {
         val workoutId = parseId(id)
         if (body.data.id != workoutId) throw badRequest("id в пути и в теле не совпадают")
         // Правка записи, которой нет, — тренировку стёрли (erase), а телефон отправляет старое: не воскрешать
         if (body.baseRev > 0 && store.workoutRow(workoutId) == null) throw apiError(Response.Status.GONE, "тренировка $workoutId удалена")
         val load = {
             store.workoutRow(workoutId, forUpdate = true)?.also { if (it.userId != user.id) throw notFound() }?.stored
+                ?.also { checkDevice(it.record, device) }
         }
         // План могли окончательно удалить, пока телефон был без сети, — тренировку всё равно принять
         val planId = body.data.planId?.takeIf { store.plan(user.id, it, forUpdate = true) != null }
@@ -71,16 +88,18 @@ class WorkoutResource(
             val n = db.update(
                 """
                 insert into workout (id, user_id, plan_id, plan_version, started_at, utc_offset_sec, start_date, finished_at, comment,
-                  layout, received_at, rev, op_id, deleted)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, cast(? as jsonb), now(), ?, ?, ?)
+                  layout, received_at, rev, op_id, deleted, device, device_kind)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, cast(? as jsonb), now(), ?, ?, ?, ?, ?)
                 on conflict (id) do update set plan_id = excluded.plan_id, plan_version = excluded.plan_version,
                   started_at = excluded.started_at, utc_offset_sec = excluded.utc_offset_sec, start_date = excluded.start_date,
                   finished_at = excluded.finished_at, comment = excluded.comment,
-                  layout = excluded.layout, received_at = now(), rev = excluded.rev, op_id = excluded.op_id, deleted = excluded.deleted
+                  layout = excluded.layout, received_at = now(), rev = excluded.rev, op_id = excluded.op_id, deleted = excluded.deleted,
+                  device = coalesce(workout.device, excluded.device),
+                  device_kind = case when workout.device is null then excluded.device_kind else workout.device_kind end
                 where workout.rev = excluded.rev - 1 and workout.user_id = excluded.user_id
                 """.trimIndent(),
                 w.id, user.id, w.planId, w.planVersion, w.startedAt, w.utcOffset?.totalSeconds, w.date, w.finishedAt, w.comment,
-                Json.of(WorkoutLayout.serializer(), w.layout), rev, put.opId, w.deleted,
+                Json.of(WorkoutLayout.serializer(), w.layout), rev, put.opId, w.deleted, device, device?.let { kind },
             )
             if (n > 0 && w.planId != null && !w.deleted) {
                 db.update(
@@ -117,15 +136,44 @@ class WorkoutResource(
         }
     }
 
+    /**
+     * Забрать активную тренировку на это устройство: дальше её ведёт оно, записи прежнего — `423`.
+     * Версия тренировки не меняется: устройство — не содержимое. Ответ — как у [get]: из него
+     * новое устройство собирает тренировку у себя.
+     */
+    @POST
+    @Path("{id}/take")
+    @Transactional
+    fun take(
+        @PathParam("id") id: String,
+        @HeaderParam(DEVICE_HEADER) device: String?,
+        @HeaderParam(DEVICE_KIND_HEADER) kind: String?,
+    ): WorkoutDetail {
+        if (device.isNullOrBlank()) throw badRequest("нет заголовка $DEVICE_HEADER")
+        val workoutId = parseId(id)
+        val w = store.workoutRow(workoutId, forUpdate = true)?.takeIf { it.userId == user.id }?.stored?.record ?: throw notFound()
+        if (!w.active) throw apiError(Response.Status.CONFLICT, "тренировка уже завершена")
+        db.update("update workout set device = ?, device_kind = ? where id = ?", device, kind, workoutId)
+        return get(id)
+    }
+
     @PUT
     @Path("{id}/sets/{setId}")
     @Transactional
-    fun putSet(@PathParam("id") id: String, @PathParam("setId") setId: String, body: SyncPut<SetFact>): RestResponse<SetFact> {
+    fun putSet(
+        @PathParam("id") id: String,
+        @PathParam("setId") setId: String,
+        body: SyncPut<SetFact>,
+        @HeaderParam(DEVICE_HEADER) device: String?,
+    ): RestResponse<SetFact> {
         val workoutId = parseId(id)
         val s = body.data
         if (s.id != parseId(setId) || s.workoutId != workoutId) throw badRequest("id в пути и в теле не совпадают")
-        // Телефон отправляет тренировку раньше её подходов
-        store.workout(user.id, workoutId) ?: throw notFound("нет тренировки $workoutId")
+        // Телефон отправляет тренировку раньше её подходов. Строка тренировки — под замком: подход
+        // не проскочит, пока её забирают
+        val w = store.workoutRow(workoutId, forUpdate = true)?.takeIf { it.userId == user.id }?.stored?.record
+            ?: throw notFound("нет тренировки $workoutId")
+        checkDevice(w, device)
         if (store.exercises(user.id, listOf(s.exerciseId)).isEmpty()) throw badRequest("нет в справочнике: ${s.exerciseId}")
 
         val read = { lock: Boolean ->
@@ -152,6 +200,15 @@ class WorkoutResource(
                 """.trimIndent(),
                 f.id, f.workoutId, user.id, f.blockId, f.itemId, f.setNo, f.targetId, f.exerciseId, f.recordType, f.perSide,
                 f.weight, f.reps, f.extraWeight, f.seconds, f.rating, f.note, f.done, f.doneAt, rev, body.opId, f.deleted,
+            )
+        }
+    }
+
+    /** Тренировку ведёт другое устройство — её забрали: запись с этого отвергается. */
+    private fun checkDevice(w: Workout, device: String?) {
+        if (device != null && w.device != null && w.device != device) {
+            throw WebApplicationException(
+                Response.status(STATUS_LOCKED).entity(ApiError("тренировку ведёт другое устройство")).type(MediaType.APPLICATION_JSON).build(),
             )
         }
     }

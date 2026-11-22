@@ -2,6 +2,7 @@ package train.client
 
 import train.core.Measurement
 import train.core.Pending
+import train.core.STATUS_LOCKED
 import train.core.SetFact
 import train.core.SyncPut
 import train.core.SyncRecord
@@ -32,6 +33,9 @@ sealed interface SendResult {
 
     /** Сервер отверг запись (`4xx`, кроме входа): она остаётся в очереди, нужен разбор. */
     data class Rejected(val status: Int, val message: String) : SendResult
+
+    /** `423`: тренировку [workoutId] забрало другое устройство — её неотправленное отсюда не уйдёт. */
+    data class Taken(val workoutId: Uuid) : SendResult
 
     data class Failed(val link: Link) : SendResult
 }
@@ -65,5 +69,12 @@ suspend fun ApiClient.send(p: Pending): SendResult = try {
     }
 } catch (e: Throwable) {
     val link = linkOf(e)
-    if (link == Link.ONLINE && e is ApiException) SendResult.Rejected(e.status, e.message.orEmpty()) else SendResult.Failed(link)
+    val rec = p.record
+    val workoutId = when (rec) {
+        is Workout -> rec.id
+        is SetFact -> rec.workoutId
+        is Measurement -> null
+    }
+    if (e is ApiException && e.status == STATUS_LOCKED && workoutId != null) SendResult.Taken(workoutId)
+    else if (link == Link.ONLINE && e is ApiException) SendResult.Rejected(e.status, e.message.orEmpty()) else SendResult.Failed(link)
 }

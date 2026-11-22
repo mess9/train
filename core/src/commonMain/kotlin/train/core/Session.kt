@@ -199,6 +199,25 @@ fun Session.comment(text: String): Session {
 fun Session.close(): Session =
     if (active != null) this else copy(workout = null, sets = emptyList(), exercises = emptyList(), previous = emptyList())
 
+/** Неотправленные записи тренировки [workoutId] — она сама и её подходы. */
+fun Session.unsentOf(workoutId: Uuid): Int = outbox.pending.count { it.record.workoutOf == workoutId }
+
+/**
+ * Тренировку забрали на другом устройстве (ADR 0007, замок): она уходит из телефона вместе со
+ * своим неотправленным — сервер его уже не примет. Замеры, и привязанные к ней, остаются в очереди.
+ */
+fun Session.taken(workoutId: Uuid): Session {
+    val rest = copy(outbox = Outbox(outbox.pending.filterNot { it.record.workoutOf == workoutId }))
+    return if (workout?.id == workoutId) rest.copy(workout = null, sets = emptyList(), exercises = emptyList(), previous = emptyList()) else rest
+}
+
+/** Тренировка, к которой относится запись очереди; у замера — нет. */
+private val SyncRecord.workoutOf: Uuid? get() = when (this) {
+    is Workout -> id
+    is SetFact -> workoutId
+    is Measurement -> null
+}
+
 fun Session.measure(m: Measurement): Session = copy(outbox = outbox.put(m))
 
 /**

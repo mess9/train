@@ -148,6 +148,12 @@ class ApiClient(
     suspend fun putSet(body: SyncPut<SetFact>): PutResult<SetFact> =
         put("/workouts/${body.data.workoutId}/sets/${body.data.id}", body)
 
+    /**
+     * Забрать идущую тренировку на это устройство (заголовок `X-Device` в [extraHeaders]): прежнее
+     * получит `423` на запись, его неотправленное в неё не попадёт.
+     */
+    suspend fun takeWorkout(id: Uuid): WorkoutDetail = decode(call(HttpMethod.Post, "/workouts/$id/take"))
+
     suspend fun compare(workoutId: Uuid): Comparison = get("/workouts/$workoutId/compare")
 
     /**

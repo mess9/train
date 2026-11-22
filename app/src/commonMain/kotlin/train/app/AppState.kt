@@ -24,6 +24,10 @@ import train.client.SendResult
 import train.client.linkOf
 import train.client.send
 import train.core.BlockRole
+import train.core.DEVICE_APK
+import train.core.DEVICE_HEADER
+import train.core.DEVICE_KIND_HEADER
+import train.core.DEVICE_WEB
 import train.core.Comparison
 import train.core.Exercise
 import train.core.ServerInfo
@@ -51,6 +55,8 @@ import train.core.newId
 import train.core.saveSession
 import train.core.snapshot
 import train.core.start
+import train.core.taken
+import train.core.unsentOf
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -96,6 +102,33 @@ const val KEY_KEY = "key"
 const val CACHE_KEY = "cache"
 const val PAUSE_KEY = "pause"
 
+/** Постоянный ID установки приложения — по нему сервер знает, какое устройство ведёт тренировку. */
+const val DEVICE_KEY = "device"
+
+/** Плашка «тренировку забрали» — до «Понятно», и после перезапуска тоже. */
+const val TAKEN_KEY = "taken"
+
+/**
+ * Тренировку забрали на другом устройстве ([kind] — его вид, если известен); [lost] — сколько
+ * неотправленных записей отсюда пропало.
+ */
+@Serializable
+data class TakenNotice(val title: String, val lost: Int, val kind: String? = null)
+
+/** Вопрос поверх экрана: забрать идущую тренировку или начать новую, пока идёт другая. */
+sealed interface Ask {
+    data class Take(val workout: Workout) : Ask
+
+    data class Start(val plan: Plan?, val other: Workout) : Ask
+}
+
+/** Где идёт тренировка — для подписей «идёт в браузере». */
+fun kindText(kind: String?): String = when (kind) {
+    DEVICE_APK -> "в приложении"
+    DEVICE_WEB -> "в браузере"
+    else -> "на другом устройстве"
+}
+
 /** Адрес сервера и сервисный токен Cloudflare Access — только у APK ([serverConfigurable]). */
 const val SERVER_KEY = "server"
 const val CF_ID_KEY = "cf_client_id"
@@ -114,12 +147,16 @@ class AppState(private val scope: CoroutineScope) {
     private val storage = DeviceStorage
     private val http = httpClient()
 
+    /** ID установки: создаётся один раз. Переустановка или очистка данных — новое устройство. */
+    val deviceId: String = storage.read(DEVICE_KEY) ?: newId().toString().also { storage.write(DEVICE_KEY, it) }
+    private val deviceHeaders = mapOf(DEVICE_HEADER to deviceId, DEVICE_KIND_HEADER to deviceKind)
+
     var key by mutableStateOf(storage.read(KEY_KEY))
         private set
-    val api = ApiClient(http, serverOrigin(), key)
+    val api = ApiClient(http, serverOrigin(), key, deviceHeaders)
 
     /** Клиент с этим ключом: ответ точно относится к нему, даже если ключ тем временем сменили. */
-    private fun client(k: String) = ApiClient(http, serverOrigin(), k)
+    private fun client(k: String) = ApiClient(http, serverOrigin(), k, deviceHeaders)
 
     /** Ключ и его пользователь, подтверждённый `/me` в этом запуске: до этого очередь не уходит. */
     private var owner: Pair<String, Uuid>? = null
@@ -229,6 +266,107 @@ class AppState(private val scope: CoroutineScope) {
         root(Screen.Workout)
     }
 
+    // Замок тренировки: её ведёт одно устройство (ADR 0007)
+
+    var ask by mutableStateOf<Ask?>(null)
+    var takenNotice by mutableStateOf(storage.read(TAKEN_KEY)?.let { runCatching { TrainJson.decodeFromString(TakenNotice.serializer(), it) }.getOrNull() })
+        private set
+    var taking by mutableStateOf(false)
+        private set
+    var takeError by mutableStateOf<String?>(null)
+
+    /** Сколько раз забирали тренировку сюда: обновление, начатое раньше, не видит своего устройства. */
+    private var takes = 0
+
+    /** Идущие тренировки, которых нет в этом телефоне: их ведёт другое устройство, можно забрать. */
+    val elsewhere: List<Workout> get() = cache.workouts.filter { it.active && it.id != session?.workout?.id }
+
+    /** «Начать тренировку»: идёт другая на другом устройстве — сначала спросить. */
+    fun requestStart(plan: Plan?) {
+        val other = elsewhere.takeIf { session?.active == null }?.firstOrNull()
+        if (other == null) startWorkout(plan) else {
+            takeError = null
+            ask = Ask.Start(plan, other)
+        }
+    }
+
+    fun requestTake(w: Workout) {
+        takeError = null
+        ask = Ask.Take(w)
+    }
+
+    fun dismissTaken() {
+        takenNotice = null
+        storage.remove(TAKEN_KEY)
+    }
+
+    /**
+     * Забрать идущую тренировку: дальше её ведёт этот телефон, прежнее устройство получит `423`.
+     * Только по сети — замок держит сервер. Своё неотправленное по ней, если было, устарело.
+     */
+    fun takeWorkout(id: Uuid) {
+        val k = key ?: return
+        if (taking || session?.active != null) return
+        taking = true
+        takeError = null
+        scope.launch {
+            try {
+                val c = client(k)
+                val d = c.takeWorkout(id)
+                val ids = d.workout.layout.blocks.flatMap { b -> b.items.map { it.exerciseId } }.toSet() + d.sets.map { it.exerciseId }
+                val previous = runCatching { c.lastSets(ids, exclude = id) }
+                    .getOrElse { cache.lastSets.filter { it.exerciseId in ids && it.workoutId != id } }
+                val s = session
+                if (key != k || s == null || s.active != null) return@launch
+                takes++
+                val next = s.taken(id).copy(workout = d.workout, sets = d.sets, exercises = cache.exercises.filter { it.id in ids }, previous = previous)
+                storage.saveSession(next)
+                session = next
+                remember(d.workout)
+                ask = null
+                rest = null
+                wake(true)
+                root(Screen.Workout)
+            } catch (e: Throwable) {
+                if (key != k) return@launch
+                takeError = when {
+                    e is ApiException && e.status == 409 -> "Тренировка уже завершена"
+                    e is ApiException && e.status == 404 -> "Тренировки больше нет"
+                    else -> {
+                        link = linkOf(e)
+                        if (link == Link.ONLINE) "Сервер не отдал тренировку: ${e.message.orEmpty()}" else "Нет связи с сервером — забрать можно только онлайн"
+                    }
+                }
+                if (e is ApiException && (e.status == 404 || e.status == 409)) refresh()
+            } finally {
+                taking = false
+            }
+        }
+    }
+
+    /**
+     * Тренировку забрали на другом устройстве: она уходит из телефона вместе с неотправленным —
+     * сервер его уже не примет. Плашка на главной объясняет, что произошло. [server] — версия
+     * сервера, если её удалось получить: кто ведёт теперь — в подписи и в строке «Забрать».
+     */
+    private fun onTaken(workoutId: Uuid, server: Workout?) {
+        val s = session ?: return
+        val w = s.workout?.takeIf { it.id == workoutId }
+        val lost = s.unsentOf(workoutId)
+        if (w == null && lost == 0) return
+        val title = workoutTitle(w ?: cache.workouts.firstOrNull { it.id == workoutId })
+        act { taken(workoutId) }
+        server?.let(::remember)
+        val notice = TakenNotice(title, lost, server?.deviceKind)
+        takenNotice = notice
+        runCatching { storage.write(TAKEN_KEY, TrainJson.encodeToString(TakenNotice.serializer(), notice)) }
+        if (w != null) {
+            rest = null
+            wake(false)
+            if (stack.any { it == Screen.Workout || it == Screen.Finish }) root(Screen.Home)
+        }
+    }
+
     fun exercise(id: Uuid): Exercise? = session?.exercise(id) ?: cache.exercises.firstOrNull { it.id == id }
 
     fun plan(id: Uuid?): Plan? = id?.let { pid -> cache.plans.firstOrNull { it.id == pid } }
@@ -307,6 +445,7 @@ class AppState(private val scope: CoroutineScope) {
         if (!force && lastRefresh?.let { now - it < 30.seconds } == true) return
         lastRefresh = now
         refreshing = true
+        val gen = takes
         scope.launch {
             try {
                 val c = client(k)
@@ -323,6 +462,10 @@ class AppState(private val scope: CoroutineScope) {
                 val lastSets = exercises.map { it.id }.chunked(40).flatMap { c.lastSets(it) }
                 val profile = runCatching { c.profile() }.getOrNull() ?: cache.profile
                 if (key != k) return@launch
+                // Тренировку этого телефона на сервере ведёт другое устройство — её забрали
+                val mine = session?.workout
+                workouts.firstOrNull { it.id == mine?.id }?.takeIf { it.device != null && it.device != deviceId && gen == takes }
+                    ?.let { onTaken(it.id, it) }
                 saveCache(withUnsent(Cache(me, plans, exercises, lastSets, workouts, measurements, now, profile)))
                 if (link != Link.OTHER_USER) link = Link.ONLINE
                 poke()
@@ -548,6 +691,11 @@ class AppState(private val scope: CoroutineScope) {
                 }
                 is SendResult.Rejected -> {
                     rejected = r
+                    link = Link.ONLINE
+                }
+                is SendResult.Taken -> {
+                    // Кто забрал — ради подписи на плашке; не вышло — без неё
+                    onTaken(r.workoutId, runCatching { client(k).workout(r.workoutId).workout }.getOrNull())
                     link = Link.ONLINE
                 }
                 is SendResult.Failed -> {

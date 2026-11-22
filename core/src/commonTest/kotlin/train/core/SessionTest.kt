@@ -185,6 +185,21 @@ class SessionTest {
     }
 
     @Test
+    fun takenWorkoutLeavesWithItsUnsentButKeepsMeasurements() {
+        val m = Measurement(newId(), BODYWEIGHT, 80.0, "kg", T0, workoutId = null)
+        val s = started().rate(circle.id, a.id, 1, Rating.NORMAL, T0 + 2.minutes).measure(m)
+        val id = s.w.id
+        assertEquals(2, s.unsentOf(id))
+        val t = s.taken(id)
+        assertNull(t.workout)
+        assertTrue(t.sets.isEmpty())
+        assertEquals(listOf(m.id), t.outbox.pending.map { it.record.id })
+        assertEquals(0, t.unsentOf(id))
+        // Чужая тренировка — своя остаётся, из очереди уходит только та
+        assertEquals(s, s.taken(newId()))
+    }
+
+    @Test
     fun forgottenWorkoutClosesFiveMinutesAfterLastMark() {
         val s = started().rate(circle.id, a.id, 1, Rating.NORMAL, T0 + 10.minutes)
         assertNull(s.forgottenEnd(T0 + 2.hours))

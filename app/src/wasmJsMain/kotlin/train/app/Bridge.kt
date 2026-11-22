@@ -118,6 +118,8 @@ actual fun serverOrigin(): String = window.location.origin
 
 actual val serverConfigurable: Boolean = false
 
+actual val deviceKind: String = train.core.DEVICE_WEB
+
 actual fun httpClient(): HttpClient = HttpClient(Js) { followRedirects = false }
 
 actual fun decodeImage(bytes: ByteArray, max: Int): ImageBitmap {

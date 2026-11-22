@@ -95,6 +95,12 @@ data class Workout(
     val layout: WorkoutLayout,
     override val rev: Long = 0,
     override val deleted: Boolean = false,
+    /**
+     * Устройство, которое ведёт тренировку ([DEVICE_HEADER]), и его вид. Пишет только сервер:
+     * при первой записи и при `take`; присланное в теле не читает.
+     */
+    val device: String? = null,
+    val deviceKind: String? = null,
 ) : SyncRecord {
     val active get() = finishedAt == null && !deleted
 

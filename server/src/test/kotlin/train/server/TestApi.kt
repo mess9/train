@@ -9,6 +9,9 @@ import kotlinx.datetime.todayIn
 import kotlinx.serialization.serializer
 import org.junit.jupiter.api.Assertions.assertEquals
 import train.core.API_KEY_HEADER
+import train.core.DEVICE_APK
+import train.core.DEVICE_HEADER
+import train.core.DEVICE_KIND_HEADER
 import train.core.Block
 import train.core.BlockItem
 import train.core.Exercise
@@ -29,9 +32,15 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-/** Клиент тестов: тело — через TrainJson, как у настоящих клиентов. */
-class TestApi(private val key: String?) {
-    fun spec(): RequestSpecification = given().contentType(ContentType.JSON).apply { key?.let { header(API_KEY_HEADER, it) } }
+/** Клиент тестов: тело — через TrainJson, как у настоящих клиентов. [device] — как у приложения. */
+class TestApi(private val key: String?, private val device: String? = null) {
+    fun spec(): RequestSpecification = given().contentType(ContentType.JSON).apply {
+        key?.let { header(API_KEY_HEADER, it) }
+        device?.let { header(DEVICE_HEADER, it); header(DEVICE_KIND_HEADER, DEVICE_APK) }
+    }
+
+    /** Тот же пользователь с устройства [id]. */
+    fun on(id: String) = TestApi(key, id)
 
     inline fun <reified T> get(path: String, status: Int = 200): T = spec().get(path).decode(status, path)
 

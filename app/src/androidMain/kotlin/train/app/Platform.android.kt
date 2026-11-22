@@ -198,6 +198,8 @@ actual fun serverOrigin(): String = DeviceStorage.read(SERVER_KEY).orEmpty()
 
 actual val serverConfigurable: Boolean = true
 
+actual val deviceKind: String = train.core.DEVICE_APK
+
 /** Картинки датасета не меняются: как `media`-кэш service worker у PWA, держим их год, и офлайн тоже. */
 private const val MEDIA_CACHE = "private, max-age=31536000, immutable"
 

@@ -161,6 +161,8 @@ fun Row.workout() = Workout(
     layout = json("layout", WorkoutLayout.serializer()),
     rev = long("rev")!!,
     deleted = bool("deleted"),
+    device = string("device"),
+    deviceKind = string("device_kind"),
 )
 
 fun Row.setFact() = SetFact(

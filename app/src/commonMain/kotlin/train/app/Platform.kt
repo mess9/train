@@ -85,6 +85,9 @@ expect fun serverOrigin(): String
  */
 expect val serverConfigurable: Boolean
 
+/** Вид устройства для замка тренировки: `apk` или `web` ([train.core.DEVICE_KIND_HEADER]). */
+expect val deviceKind: String
+
 /** HTTP-клиент без перехода по редиректам: редирект — вход Cloudflare Access (`Link.ACCESS_LOGIN`). */
 expect fun httpClient(): HttpClient
 
