@@ -39,7 +39,7 @@ fun cells(type: RecordType, v: SetValues): List<Pair<String, String>> {
     fun n(x: Double?) = x?.let(::num) ?: "—"
     return when (type) {
         RecordType.WEIGHT_REPS -> listOf(n(v.weight) to "кг", (v.reps?.toString() ?: "—") to "повт")
-        RecordType.REPS -> listOfNotNull((v.reps?.toString() ?: "—") to "повт", v.extraWeight?.let { "+" + num(it) to "кг" })
+        RecordType.REPS -> listOfNotNull(v.extraWeight?.let { "+" + num(it) to "кг" }, (v.reps?.toString() ?: "—") to "повт")
         RecordType.TIME -> listOf((v.seconds?.let(TimeInput::clock) ?: "—") to "мин")
         RecordType.WEIGHT_TIME -> listOf(n(v.weight) to "кг", (v.seconds?.let(TimeInput::clock) ?: "—") to "мин")
     }

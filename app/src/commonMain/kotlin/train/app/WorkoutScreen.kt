@@ -609,8 +609,8 @@ private fun SetLine(
                 ValueField("$key-r", v.reps?.toDouble(), false, "повт") { x -> edit { copy(reps = x?.toInt()) } }
             }
             RecordType.REPS -> {
-                ValueField("$key-r", v.reps?.toDouble(), false, "повт") { x -> edit { copy(reps = x?.toInt()) } }
                 ValueField("$key-x", v.extraWeight, true, "+кг", "+") { x -> edit { copy(extraWeight = x) } }
+                ValueField("$key-r", v.reps?.toDouble(), false, "повт") { x -> edit { copy(reps = x?.toInt()) } }
             }
             RecordType.TIME -> SecondsField("$key-s", v.seconds) { x -> edit { copy(seconds = x) } }
             RecordType.WEIGHT_TIME -> {

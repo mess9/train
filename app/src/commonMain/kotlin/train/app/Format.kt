@@ -100,7 +100,10 @@ fun blockTitle(role: BlockRole, title: String?, index: Int): String = title ?: w
 /** Время подхода: до минуты — «45 с», дальше — «1:30» (п. 14 владельца: не секундами). */
 fun secs(s: Int): String = if (s < 60) "$s с" else TimeInput.clock(s)
 
-/** Цель подхода: «10–12 × 14 кг», «15 повт», «45 с», «1:30»; без цели — «без плана». */
+/**
+ * Цель подхода: «14 кг × 10–12», «+5 кг × 15 повт», «15 повт», «45 с», «1:30»; без цели — «без плана».
+ * Везде сначала вес, потом повторы или время — как поля в строке подхода.
+ */
 fun target(type: RecordType, s: TargetSet?): String {
     if (s == null) return "без плана"
     val reps = when {
@@ -109,16 +112,16 @@ fun target(type: RecordType, s: TargetSet?): String {
         else -> "${s.repsMin}–${s.repsMax}"
     }
     val parts = buildList {
-        if (type.usesReps && reps != null) add(if (type.usesWeight) reps else "$reps повт")
-        if (type.usesSeconds && s.seconds != null) add(secs(s.seconds!!))
         if (type.usesWeight) s.weight?.let { add("${num(it)} кг") }
         if (type.usesExtraWeight) s.extraWeight?.let { add("+${num(it)} кг") }
+        if (type.usesReps && reps != null) add(if (type.usesWeight) reps else "$reps повт")
+        if (type.usesSeconds && s.seconds != null) add(secs(s.seconds!!))
     }
     return parts.joinToString(" × ").ifEmpty { "без плана" }
 }
 
 /**
- * Строка плана под названием упражнения в тренировке: «10–12 × 14 кг · отдых 20 с». Одна строка
+ * Строка плана под названием упражнения в тренировке: «14 кг × 10–12 · отдых 20 с». Одна строка
  * в компактной карточке — без слова «План».
  */
 fun itemMeta(item: LayoutItem, replacedName: String?): String {
@@ -135,19 +138,19 @@ fun itemMeta(item: LayoutItem, replacedName: String?): String {
     return t
 }
 
-/** Цель упражнения в экране плана: «3 × 10–12 × 14 кг · на сторону». В круге подходов не пишем. */
+/** Цель упражнения в экране плана: «3 × 14 кг × 10–12 · на сторону». В круге подходов не пишем. */
 fun planTarget(block: LayoutBlock, item: LayoutItem, passes: Int): String {
     val targets = item.sets.map { target(item.recordType, it) }.distinct()
     val t = if (targets.size > 1) "пирамида" else target(item.recordType, item.sets.firstOrNull())
     return (if (passes > 1 || item.sets.isEmpty()) "" else "${item.sets.size} × ") + t + (if (item.perSide) " · на сторону" else "")
 }
 
-/** Коротко: «14×12», «15 повт», «45 с»; нет значений — «—». */
+/** Коротко: «14×12», «+5×15», «15 повт», «45 с»; нет значений — «—». */
 fun short(type: RecordType, v: SetValues?): String {
     if (v == null) return "—"
     return when (type) {
         RecordType.WEIGHT_REPS -> v.weight?.let { w -> v.reps?.let { "${num(w)}×$it" } } ?: v.reps?.let { "$it повт" } ?: "—"
-        RecordType.REPS -> v.reps?.let { r -> "$r повт" + (v.extraWeight?.let { " +${num(it)}" } ?: "") } ?: "—"
+        RecordType.REPS -> v.reps?.let { r -> v.extraWeight?.let { "+${num(it)}×$r" } ?: "$r повт" } ?: "—"
         RecordType.TIME -> v.seconds?.let(::secs) ?: "—"
         RecordType.WEIGHT_TIME -> v.weight?.let { w -> v.seconds?.let { "${num(w)}×${secs(it)}" } } ?: v.seconds?.let(::secs) ?: "—"
     }

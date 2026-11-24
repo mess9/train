@@ -210,7 +210,7 @@ export class Phone {
     await this.tapAt(b.x + b.w / 2, b.y + b.h / 2);
   }
 
-  /** Поле строки подхода: `field` — номер поля слева направо (кг, повт / повт, +кг / время). */
+  /** Поле строки подхода: `field` — номер поля слева направо (кг, повт / +кг, повт / кг, время). */
   async set(exercise, field, value, i = 0, clear = 8) {
     const f = (await this.row(exercise, i)).fields[field];
     await this.tapAt(f.x + f.w / 2, f.y + f.h / 2);
