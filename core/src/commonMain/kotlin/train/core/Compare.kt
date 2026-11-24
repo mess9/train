@@ -33,7 +33,11 @@ data class DoneSet(
 )
 
 @Serializable
-data class SetComparison(val setNo: Int, val status: SetStatus, val target: TargetSet? = null, val fact: DoneSet? = null)
+data class SetComparison(
+    val setNo: Int, val status: SetStatus, val target: TargetSet? = null, val fact: DoneSet? = null,
+    /** Исторический рекорд, побитый этим подходом. */
+    val record: ExerciseBest? = null,
+)
 
 @Serializable
 data class ItemComparison(
@@ -107,6 +111,8 @@ data class Comparison(
     val previous: List<PreviousResult>,
     /** Сделанные подходы, которым не нашлось места в раскладке. Пусто, если всё в порядке. */
     val unplaced: List<DoneSet> = emptyList(),
+    /** Прежний лучший объём, если текущая тренировка его превысила. */
+    val volumeRecord: VolumeBest? = null,
 )
 
 /**
@@ -126,9 +132,11 @@ fun compare(
     bodyweight: Double? = null,
     heightCm: Double? = null,
     measurements: List<Measurement> = emptyList(),
+    best: Records = Records(),
 ): Comparison {
     val done = facts.filter { it.workoutId == workout.id && it.done && !it.deleted }
     val doneByItem = done.groupBy { it.itemId }
+    val records = setRecords(done, exercises, bodyweight, best)
     val name = { id: Uuid -> exercises[id]?.nameRu }
 
     val blocks = workout.layout.blocks.map { block ->
@@ -139,9 +147,9 @@ fun compare(
                 val target = item.sets.getOrNull(n - 1)
                 val fact = bySetNo[n]?.toDone(item.exerciseId)
                 when {
-                    target != null && fact != null -> SetComparison(n, SetStatus.DONE, target, fact)
+                    target != null && fact != null -> SetComparison(n, SetStatus.DONE, target, fact, records[bySetNo[n]?.id])
                     target != null -> SetComparison(n, SetStatus.SKIPPED, target)
-                    fact != null -> SetComparison(n, SetStatus.ADDED, fact = fact)
+                    fact != null -> SetComparison(n, SetStatus.ADDED, fact = fact, record = records[bySetNo[n]?.id])
                     else -> null
                 }
             }
@@ -194,6 +202,7 @@ fun compare(
         blocks = blocks,
         previous = history,
         unplaced = done.filter { it.itemId !in placed }.map { it.toDone(null) },
+        volumeRecord = volumeRecord(volume, best),
     )
 }
 

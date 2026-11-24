@@ -44,6 +44,7 @@ import train.core.PhotoPatch
 import train.core.Plan
 import train.core.PlanPut
 import train.core.Profile
+import train.core.Records
 import train.core.Purged
 import train.core.ServerInfo
 import train.core.SetFact
@@ -155,6 +156,9 @@ class ApiClient(
     suspend fun takeWorkout(id: Uuid): WorkoutDetail = decode(call(HttpMethod.Post, "/workouts/$id/take"))
 
     suspend fun compare(workoutId: Uuid): Comparison = get("/workouts/$workoutId/compare")
+
+    suspend fun records(ids: Collection<Uuid>? = null, exclude: Uuid? = null): Records =
+        get("/records" + query("ids" to ids?.joinToString(","), "exclude" to exclude?.toString()))
 
     /**
      * Удалить тренировку насовсем, мимо корзины: подходы и их история стираются, замеры и фото

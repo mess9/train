@@ -232,6 +232,7 @@ class WorkoutResource(
             bodyweight = store.bodyweight(user.id, w),
             heightCm = store.profile(user.id).heightCm,
             measurements = store.measurementsOf(user.id, w.id),
+            best = store.records(user.id, exerciseIds.toSet(), exclude = w.id, before = w.startedAt),
         )
     }
 }

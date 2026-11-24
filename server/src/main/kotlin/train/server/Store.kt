@@ -18,6 +18,8 @@ import train.core.Plan
 import train.core.PlanBody
 import train.core.Rating
 import train.core.RecordType
+import train.core.Records
+import train.core.records
 import train.core.SetFact
 import train.core.Workout
 import train.core.WorkoutLayout
@@ -47,6 +49,19 @@ class Days(@ConfigProperty(name = "train.zone") zone: Optional<String>) {
 /** Запросы, которые нужны нескольким ресурсам. */
 @ApplicationScoped
 class Store(private val db: Db, private val days: Days) {
+    /** Фильтр упражнений ограничивает подходы-рекорды; объём всегда по всей тренировке. */
+    fun records(userId: Uuid, ids: Collection<Uuid>? = null, exclude: Uuid? = null, before: Instant? = null): Records {
+        val workouts = db.list("select * from workout where user_id = ? and not deleted order by started_at", userId) { it.workout() }
+            .filter { it.id != exclude && (before == null || it.startedAt < before) }
+        val sets = if (workouts.isEmpty()) emptyList() else db.list(
+            "select * from workout_set where workout_id = any(?) and done and not deleted", UuidList(workouts.map { it.id }),
+        ) { it.setFact() }
+        val weights = db.list(
+            "select * from measurement where user_id = ? and type = ? and not deleted order by measured_at", userId, BODYWEIGHT,
+        ) { it.measurement() }
+        return records(workouts, sets, exercises(userId, sets.map { it.exerciseId }.toSet()), weights, days.zone, ids)
+    }
+
     fun exercises(userId: Uuid, ids: Collection<Uuid>): Map<Uuid, Exercise> =
         if (ids.isEmpty()) emptyMap()
         else db.list("select * from exercise where id = any(?) and $VISIBLE", UuidList(ids), userId) { it.exercise() }

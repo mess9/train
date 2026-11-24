@@ -66,8 +66,8 @@ fun DoneSet.text(): String = listOfNotNull(load(), value() + rating.mark()).join
 /** Токен подхода: нагрузка группирует подходы; пропущенный без нагрузки цели встаёт в текущую группу. */
 private class Token(val load: String?, val text: String, val skipped: Boolean = false)
 
-private fun DoneSet.token(prefix: String = "") =
-    Token(load(), prefix + value() + rating.mark() + (note?.takeIf { it.isNotBlank() }?.let { " " + quote(it) } ?: ""))
+private fun DoneSet.token(prefix: String = "", record: Boolean = false) =
+    Token(load(), prefix + value() + rating.mark() + (if (record) " рекорд" else "") + (note?.takeIf { it.isNotBlank() }?.let { " " + quote(it) } ?: ""))
 
 private fun tokens(ts: List<Token>): String {
     val groups = mutableListOf<Pair<String?, MutableList<String>>>()
@@ -144,6 +144,7 @@ fun Comparison.toText(names: (Uuid) -> String? = { null }, planNotes: Boolean = 
         ).joinToString(" · "),
     )
     if (measurements.isNotEmpty()) appendLine("замеры: " + measurements.joinToString(", ") { "${it.type} ${num(it.value)} ${it.unit}" })
+    volumeRecord?.let { appendLine("рекорд объёма: ${num(round(t.volumeKg))} кг, было ${num(round(it.volumeKg))} кг · ${it.date.dmy()}") }
     comment?.takeIf { it.isNotBlank() }?.let { appendLine("комментарий: ${quote(it)}") }
 
     val prev = previous.associateBy { it.exerciseId }
@@ -177,8 +178,8 @@ private fun StringBuilder.appendItem(item: ItemComparison, prev: PreviousResult?
     val tokens = item.sets.map { s ->
         when (s.status) {
             SetStatus.SKIPPED -> Token(s.target?.load(), "—", skipped = true)
-            SetStatus.ADDED -> s.fact!!.token("+")
-            SetStatus.DONE -> s.fact!!.let { f -> if (f.exerciseId == null) f.token() else f.token().let { Token("до замены ${it.load ?: ""}".trim(), it.text) } }
+            SetStatus.ADDED -> s.fact!!.token("+", record = s.record != null)
+            SetStatus.DONE -> s.fact!!.let { f -> if (f.exerciseId == null) f.token(record = s.record != null) else f.token(record = s.record != null).let { Token("до замены ${it.load ?: ""}".trim(), it.text) } }
         }
     }
     val parts = listOfNotNull(

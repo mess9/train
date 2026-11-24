@@ -27,6 +27,8 @@ data class Session(
     /** Последние факты этих упражнений: прошлый результат и предзаполнение. */
     val previous: List<SetFact> = emptyList(),
     val outbox: Outbox = Outbox(),
+    /** Историческая планка этой тренировки; сохраняется с сессией для офлайн-перезапуска. */
+    val records: Records? = null,
 ) {
     /** Тренировка идёт: её можно менять. Завершённая остаётся здесь до экрана «Готово». */
     val active get() = workout?.takeIf { it.active }
@@ -49,12 +51,13 @@ fun Session.start(
     previous: List<SetFact>,
     now: Instant,
     offset: UtcOffset? = null,
+    records: Records = Records(),
 ): Session {
     val w = Workout(
         newId(), plan?.id, plan?.version, startedAt = now, utcOffset = offset,
         date = offset?.let { now.toLocalDateTime(it.asTimeZone()).date }, layout = layout,
     )
-    return copy(workout = w, sets = emptyList(), exercises = exercises, previous = previous).record(w)
+    return copy(workout = w, sets = emptyList(), exercises = exercises, previous = previous, records = records).record(w)
 }
 
 /**
@@ -197,7 +200,7 @@ fun Session.comment(text: String): Session {
 
 /** Экран завершения закрыт: тренировка уходит из телефона, очередь остаётся. */
 fun Session.close(): Session =
-    if (active != null) this else copy(workout = null, sets = emptyList(), exercises = emptyList(), previous = emptyList())
+    if (active != null) this else copy(workout = null, sets = emptyList(), exercises = emptyList(), previous = emptyList(), records = null)
 
 /** Неотправленные записи тренировки [workoutId] — она сама и её подходы. */
 fun Session.unsentOf(workoutId: Uuid): Int = outbox.pending.count { it.record.workoutOf == workoutId }
@@ -208,7 +211,7 @@ fun Session.unsentOf(workoutId: Uuid): Int = outbox.pending.count { it.record.wo
  */
 fun Session.taken(workoutId: Uuid): Session {
     val rest = copy(outbox = Outbox(outbox.pending.filterNot { it.record.workoutOf == workoutId }))
-    return if (workout?.id == workoutId) rest.copy(workout = null, sets = emptyList(), exercises = emptyList(), previous = emptyList()) else rest
+    return if (workout?.id == workoutId) rest.copy(workout = null, sets = emptyList(), exercises = emptyList(), previous = emptyList(), records = null) else rest
 }
 
 /** Тренировка, к которой относится запись очереди; у замера — нет. */
