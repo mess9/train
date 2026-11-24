@@ -14,6 +14,7 @@ import train.core.JournalPut
 import train.core.Purged
 import train.core.Trash
 import train.core.Trend
+import train.core.ScoreUnit
 import train.core.WeekSummary
 import train.core.monday
 import train.core.newId
@@ -102,6 +103,10 @@ class JournalTest {
             assertEquals(bench.id, h.exerciseId)
             assertEquals(2, h.sessions)
             assertEquals(listOf(Trend.UP, null), h.recent.map { it.trend })
+            assertEquals(setOf(ScoreUnit.ESTIMATED_KG), h.scoreUnits)
+            assertEquals(ScoreUnit.ESTIMATED_KG, h.recent[0].scoreUnit)
+            assertEquals(ScoreUnit.ESTIMATED_KG, h.recent[0].previousScoreUnit)
+            assertNull(h.recent[1].previousScoreUnit)
             assertEquals(listOf(10, 8), h.recent[0].sets.map { it.reps })
             assertEquals(listOf("жим растёт"), h.journal.map { it.decision })
         }
