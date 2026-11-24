@@ -224,7 +224,7 @@ class BriefCmd : ApiCommand("brief", "Сводка для агента пере�
         val reviewed = entries.mapNotNull { it.workoutId }.toSet()
         val unreviewed = workouts.drop(1).filter { it.id !in reviewed }
         val history = api.history(since = since)
-        val names = names(api, entries.flatMap { it.exerciseIds })
+        val names = names(api, entries.flatMap { it.exerciseIds } + plans.flatMap { p -> p.body.equipment.mapNotNull { it.exerciseId } })
         // Сервер без /health (ещё не обновлён) — раздел пустой, brief работает
         val health = runCatching { api.health(today.minus(DatePeriod(days = BRIEF_HEALTH_DAYS - 1)), today) }.getOrNull()
 
@@ -240,7 +240,8 @@ class BriefCmd : ApiCommand("brief", "Сводка для агента пере�
                 profile.notes?.let { "заметки:\n$it" },
             ).joinToString("\n"),
             "## планы" to plans.sortedBy { it.date }.joinToString("\n") {
-                "${it.date.weekday()} ${it.date.dm()} «${it.title ?: "без названия"}» ${it.status.name.lowercase()} v${it.version} · id ${it.id}"
+                "${it.date.weekday()} ${it.date.dm()} «${it.title ?: "без названия"}» ${it.status.name.lowercase()} v${it.version} · id ${it.id}" +
+                    it.body.equipment.joinToString("") { step -> "\n  ${step.label { id -> names[id] }} → ${step.setup}" }
             },
             "## журнал: действующие решения и записи за $days дн." to entries.toText { names[it] },
             "## недели" to ws.toText(),

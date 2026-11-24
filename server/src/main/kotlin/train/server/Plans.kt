@@ -91,6 +91,13 @@ class PlanResource(
     /** Упражнения — из справочника пользователя; ID блоков, упражнений и целей не повторяются. */
     private fun validate(body: PlanBody) {
         val items = body.blocks.flatMap { it.items }
+        val exerciseIds = items.map { it.exerciseId }.toSet()
+        body.equipment.forEachIndexed { i, step ->
+            if (step.setup.isBlank()) throw badRequest("equipment[$i].setup не должен быть пустым")
+            if (step.exerciseId != null && step.exerciseId !in exerciseIds) {
+                throw badRequest("equipment[$i].exerciseId нет в блоках плана")
+            }
+        }
         val missing = items.map { it.exerciseId }.toSet() - store.exercises(user.id, items.map { it.exerciseId }.toSet()).keys
         if (missing.isNotEmpty()) throw badRequest("нет в справочнике: ${missing.joinToString()}")
         val ids = body.blocks.map { it.id } + items.map { it.id } + items.flatMap { it.sets }.map { it.id }

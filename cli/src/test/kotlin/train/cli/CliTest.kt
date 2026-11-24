@@ -22,6 +22,7 @@ import train.core.User
 import train.core.UserCreated
 import train.core.Plan
 import train.core.PlanBody
+import train.core.PlanPut
 import train.core.PlanStatus
 import train.core.TrainJson
 import train.core.newId
@@ -73,6 +74,25 @@ class CliTest {
         val sent = TrainJson.parseToJsonElement(req.text()!!).jsonObject
         assertEquals(setOf("date", "title", "body"), sent.keys)
         assertEquals(plan, TrainJson.decodeFromString(Plan.serializer(), r.stdout))
+    }
+
+    @Test
+    fun skillPlanExampleIsAcceptedAndEquipmentIsSent() {
+        val skill = generateSequence(Path.of("").toAbsolutePath()) { it.parent }
+            .map { it.resolve(".claude/skills/gym/SKILL.md") }.first { Files.exists(it) }
+        val example = Files.readString(skill).substringAfter("```json").substringBefore("```")
+        // В документации ID упражнений — понятные агенту подстановки.
+        val ids = Regex("<[^>]+>").findAll(example).map { it.value }.distinct().associateWith { newId().toString() }
+        val json = ids.entries.fold(example) { text, (placeholder, id) -> text.replace(placeholder, id) }
+        val expected = TrainJson.decodeFromString(PlanPut.serializer(), json)
+        val input = file(json)
+        val result = gym("plan put $input") { HttpStatusCode.OK to TrainJson.encodeToString(Plan.serializer(), plan) }
+        assertEquals(0, result.statusCode, result.stderr)
+        val sent = TrainJson.decodeFromString(PlanPut.serializer(), requests.single().text()!!)
+        assertEquals(expected.body.equipment, sent.body.equipment)
+        assertEquals(3, sent.body.equipment.size)
+        val exercises = sent.body.blocks.flatMap { b -> b.items.map { it.exerciseId } }.toSet()
+        assertTrue(sent.body.equipment.all { it.setup.isNotBlank() && (it.exerciseId == null || it.exerciseId in exercises) })
     }
 
     @Test

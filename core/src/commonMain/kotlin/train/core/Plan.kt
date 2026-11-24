@@ -1,6 +1,7 @@
 package train.core
 
 import kotlinx.datetime.LocalDate
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -47,7 +48,25 @@ data class Block(
 )
 
 @Serializable
-data class PlanBody(val blocks: List<Block>, val note: String? = null)
+data class EquipmentStep(
+    /** Перед этим упражнением плана; `null` — общий шаг (начало, круг целиком). */
+    val exerciseId: Uuid? = null,
+    /** Подпись вместо названия упражнения: «Начало», «Круг 2». */
+    val at: String? = null,
+    /** Что выставить: «гантели 2×12,5», «гриф 1×15», «доска». */
+    val setup: String,
+) {
+    fun label(name: (Uuid) -> String?): String =
+        at?.takeIf { it.isNotBlank() } ?: exerciseId?.let { name(it) ?: it.toString() } ?: "Начало"
+}
+
+@Serializable
+data class PlanBody(
+    val blocks: List<Block>,
+    val note: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val equipment: List<EquipmentStep> = emptyList(),
+)
 
 /**
  * Переставить упражнение внутри блока: с места [from] на [to], остальные сдвигаются. Цели,

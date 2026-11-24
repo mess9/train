@@ -25,6 +25,9 @@ kotlin {
 
 tasks.test {
     useJUnitPlatform()
+    // Тест читает JSON-пример из skill: правка документа тоже должна сбрасывать кэш тестов.
+    inputs.file(rootProject.layout.projectDirectory.file(".claude/skills/gym/SKILL.md"))
+        .withPropertyName("gymSkill").withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 // installDist → cli/build/install/gym/bin/gym

@@ -8,7 +8,10 @@ class PlanMoveTest {
 
     private val warm = Block(role = BlockRole.WARMUP, items = listOf(item("w1"), item("w2")))
     private val circle = Block(items = listOf(item("a"), item("b"), item("c"), item("d")), restAfterPassSec = 120)
-    private val body = PlanBody(listOf(warm, circle), note = "заметка")
+    private val body = PlanBody(listOf(warm, circle), note = "заметка", equipment = listOf(
+        EquipmentStep(at = "Начало", setup = "гантели 2×10"),
+        EquipmentStep(exerciseId = circle.items[1].exerciseId, setup = "гантель 1×15"),
+    ))
 
     private fun PlanBody.notes(i: Int) = blocks[i].items.map { it.note }
 
@@ -25,6 +28,7 @@ class PlanMoveTest {
         assertEquals(warm, moved.blocks[0])
         assertEquals(circle.restAfterPassSec, moved.blocks[1].restAfterPassSec)
         assertEquals("заметка", moved.note)
+        assertEquals(body.equipment, moved.equipment)
     }
 
     @Test

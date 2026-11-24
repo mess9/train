@@ -4,6 +4,8 @@
 .git/
 .idea/
 .claude/
+# CLI-тест проверяет JSON-пример из skill; остальные настройки агента в контекст не входят.
+!.claude/skills/gym/SKILL.md
 spike/
 docs/
 *.env

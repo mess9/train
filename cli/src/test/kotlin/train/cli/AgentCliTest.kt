@@ -26,6 +26,10 @@ import train.core.ExerciseHistory
 import train.core.JournalEntry
 import train.core.JournalPut
 import train.core.Profile
+import train.core.Plan
+import train.core.PlanBody
+import train.core.PlanStatus
+import train.core.EquipmentStep
 import train.core.Trash
 import train.core.RecordType
 import train.core.Totals
@@ -138,6 +142,26 @@ class AgentCliTest {
         assertEquals(0, plans.statusCode, plans.stderr)
         assertEquals(Trash(), TrainJson.decodeFromString(Trash.serializer(), plans.stdout))
         assertEquals(1, run("trash", "list", "--only", "кошки") { w }.statusCode)
+    }
+
+    @Test
+    fun briefShowsEquipmentInAgentOrderWithExerciseNames() {
+        val plan = Plan(newId(), LocalDate(2026, 11, 22), "План", 1, PlanBody(emptyList(), equipment = listOf(
+            EquipmentStep(setup = "гантели 2×12,5"),
+            EquipmentStep(exerciseId = bench.id, setup = "гриф 1×15"),
+            EquipmentStep(exerciseId = bench.id, at = "Круг 2", setup = "доска"),
+        )), PlanStatus.PLANNED)
+        val r = run("brief") { req ->
+            when (req.url.encodedPath) {
+                "/api/profile" -> "{}"
+                "/api/plans" -> TrainJson.encodeToString(ListSerializer(Plan.serializer()), listOf(plan))
+                "/api/exercises/${bench.id}" -> TrainJson.encodeToString(Exercise.serializer(), bench)
+                else -> "[]"
+            }
+        }
+        assertEquals(0, r.statusCode, r.stderr)
+        assertTrue("\n  Начало → гантели 2×12,5\n  Жим → гриф 1×15\n  Круг 2 → доска" in r.stdout, r.stdout)
+        assertEquals(1, requests.count { it.url.encodedPath == "/api/exercises/${bench.id}" })
     }
 
     @Test

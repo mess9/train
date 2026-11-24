@@ -20,6 +20,7 @@ RUN --mount=type=cache,target=/root/.gradle \
 
 # docker build --target test . — тесты без Postgres: core, client, cli
 FROM build AS test
+COPY .claude/skills/gym/SKILL.md .claude/skills/gym/SKILL.md
 RUN --mount=type=cache,target=/root/.gradle \
     sh gradlew --no-daemon :core:jvmTest :client:jvmTest :cli:test
 

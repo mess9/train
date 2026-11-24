@@ -40,12 +40,30 @@ class JsonTest {
             ]}}
         """.trimIndent()
         val plan = TrainJson.decodeFromString<PlanPut>(json)
+        assertTrue(plan.body.equipment.isEmpty())
+        assertFalse("equipment" in TrainJson.encodeToString(plan))
         assertEquals(LocalDate(2026, 11, 4), plan.date)
         val main = plan.body.blocks[1]
         assertEquals(BlockRole.MAIN, main.role)
         assertEquals(null, main.items[1].sets[0].weight)
         val ids = plan.body.blocks.flatMap { b -> listOf(b.id) + b.items.flatMap { i -> listOf(i.id) + i.sets.map { it.id } } }
         assertEquals(ids.size, ids.toSet().size)
+    }
+
+    @Test
+    fun equipmentStepsRoundTripAndLabels() {
+        val id = newId()
+        val text = """{"blocks":[],"equipment":[
+            {"setup":"гантели 2×12,5"},
+            {"exerciseId":"$id","setup":"гриф 1×15"},
+            {"exerciseId":"$id","at":"Круг 2","setup":"доска"}
+        ]}"""
+        val body = decodeStrict(PlanBody.serializer(), text)
+        assertEquals(listOf("Начало", "Жим", "Круг 2"), body.equipment.map { it.label { "Жим" } })
+        assertEquals(listOf("гантели 2×12,5", "гриф 1×15", "доска"), body.equipment.map { it.setup })
+        assertEquals(body, TrainJson.decodeFromString<PlanBody>(TrainJson.encodeToString(body)))
+        assertEquals(id.toString(), body.equipment[1].label { null })
+        assertEquals("Жим", body.equipment[1].copy(at = "  ").label { "Жим" })
     }
 
     @Test
