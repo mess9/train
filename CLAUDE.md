@@ -63,7 +63,10 @@ skillshare, так что правка в репо = правка skill).
   `compileAndroidMain`.
 - **В Jenkins только core, client, cli** — внутри `docker build --target test`. `server:test`
   там не идёт (нужен Docker в Docker): серверные тесты — локально, перед пушем. Коммит без
-  файлов из `COPY` в `Dockerfile` (доки, `.claude/`, `docs/`) берёт сборку и тесты из кэша слоёв.
+  файлов из `COPY` в `Dockerfile` (доки, `docs/`) берёт сборку и тесты из кэша слоёв.
+  Исключение — `.claude/skills/gym/SKILL.md`: он включён через `.dockerignore` и копируется только
+  в стадию `test`, потому что CLI-тест проверяет JSON-пример плана из skill. Правка примера
+  должна перезапускать этот тест и в Docker.
 - **Android**: `./gradlew :health-sync:assembleDebug` → `health-sync/build/outputs/apk/debug/`. Он и `android`
   включаются, только если есть `ANDROID_HOME` или `local.properties`. `health-sync` Jenkins не
   собирает, `android` собирает только стадия `apk` в `Dockerfile` (там своё SDK). AGP 9 (Kotlin встроенный) объявлен в корне рядом с
@@ -91,6 +94,10 @@ skillshare, так что правка в репо = правка skill).
   `server:appDist` нужен лишь wasm.
 - e2e находит кнопку-пиктограмму по `contentDescription` (`aria-label`, в `lib.js` — `label`), а
   не по тексту. Без подписи кнопку не найти ни тесту, ни TalkBack, ни будущему драйверу Android.
+- Браузерный мост доступности Compose не стирает текст и `aria-label` удалённого потомка у
+  нажимаемого узла: «Не удалось загрузить фото» висит в кнопке и после загрузки картинки, а
+  `getByText(...).toHaveCount(0)` считает и такие узлы. Меняющийся текст выносить из `tap`-узла
+  либо задавать подпись `clearAndSetSemantics`/`contentDescription` самому (`PhotoCompare.CompareSlot`, `SetViews`).
 - Выгрузка Health Connect (zip с SQLite) — недоверенный файл: отдельная пустая папка, Python
   `-I -X utf8` (`-I` игнорирует `PYTHONIOENCODING`). Личное из неё — только в scratchpad.
   Сами выгрузки (Health Connect, архив Mi Fitness) хранятся в `import/health/` главной копии:
@@ -99,6 +106,11 @@ skillshare, так что правка в репо = правка skill).
 - e2e: `npx playwright test` из `e2e/` — через PowerShell. В Git Bash `cd e2e` падает на хуке
   fnm («can't find the necessary environment variables»), команда после `&&` не идёт, а лог
   остаётся от прошлого прогона.
+- Wasm: ошибка Ktor JS при отключённой сети (`Fail to fetch`) может быть `Throwable`, не
+  `Exception`. В сетевом fallback перехватывать `Throwable`, перед ним — отдельно пробрасывать
+  `CancellationException`. Необработанная ошибка из фонового `launch` может отменить UI scope:
+  canvas застынет, дерево доступности останется от прошлого экрана. Проверка — старт целиком
+  офлайн и отсутствие `pageerror` в браузерном тесте.
 - Замок тренировки (ADR 0007) в превью: второе устройство — запросы с `X-Device` и
   `X-Device-Kind` (`take`, запись подхода — ждать `423`), ID браузера — `localStorage.device`.
   Без заголовка замок не проверяется — так пишут CLI и агент.
