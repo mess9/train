@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -15,6 +16,7 @@ import train.client.ApiException
 import train.client.Link
 import train.client.linkOf
 import train.core.Photo
+import train.core.ExerciseHistory
 import train.core.Stats
 import train.core.newId
 import kotlin.io.encoding.Base64
@@ -35,8 +37,7 @@ class PhotoDraft(
 enum class Picking { None, Waiting, Compressing }
 
 /**
- * Раздел «Замеры»: сводка за период с сервера и фото прогресса. Всё в памяти — фото и сводка
- * без сети не нужны, а файлы большие.
+ * Прогресс с сервера: сводка, фото и история упражнений. Всё в памяти, без записи в кэш.
  */
 class Progress(
     private val scope: CoroutineScope,
@@ -45,6 +46,32 @@ class Progress(
     /** Тренировка ещё в очереди телефона: фото с её id сервер не привязал бы — ссылку на неизвестную он обнуляет. */
     private val workoutPending: (Uuid) -> Boolean,
 ) {
+    /** История только в памяти; при каждом открытии обновляется, чтобы видеть правки и новые подходы. */
+    val exercises = mutableStateMapOf<Uuid, ExerciseHistory>()
+    val exerciseLoading = mutableStateMapOf<Uuid, Boolean>()
+    val exerciseFailed = mutableStateMapOf<Uuid, Boolean>()
+
+    fun loadExercise(id: Uuid) {
+        if (exerciseLoading[id] == true) return
+        exerciseLoading[id] = true
+        exerciseFailed[id] = false
+        scope.launch {
+            try {
+                val history = api.history(listOf(id), recent = 100).single { it.exerciseId == id }
+                // Журнал тренера не участвует в экране телефона и не сохраняется с историей.
+                exercises[id] = history.copy(journal = emptyList())
+                onLink(Link.ONLINE)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                exerciseFailed[id] = true
+                onLink(linkOf(e))
+            } finally {
+                exerciseLoading[id] = false
+            }
+        }
+    }
+
     // Сводка: по диапазону дат
 
     val stats = mutableStateMapOf<Pair<LocalDate, LocalDate>, Stats>()
@@ -68,7 +95,10 @@ class Progress(
         private set
     var photosLoaded by mutableStateOf(false)
         private set
-    private var photosLoading = false
+    var photosLoading by mutableStateOf(false)
+        private set
+    var photosFailed by mutableStateOf(false)
+        private set
 
     /** Тренировку стёрли: её фото остаются, но уже ни к чему не привязаны — как на сервере. */
     fun unlinkWorkout(id: Uuid) {
@@ -79,10 +109,62 @@ class Progress(
         if ((photosLoaded && !force) || photosLoading) return
         photosLoading = true
         scope.launch {
-            runCatching { api.photos() }
-                .onSuccess { photos = it.filter { p -> p.deletedAt == null }.sortedByDescending { p -> p.takenAt }; photosLoaded = true }
-                .onFailure { onLink(linkOf(it)) }
-            photosLoading = false
+            try {
+                photos = api.photos().filter { it.deletedAt == null }.sortedByDescending { it.takenAt }
+                photosLoaded = true
+                photosFailed = false
+                onLink(Link.ONLINE)
+                if (comparisonErrors.isNotEmpty()) comparePhotos(comparisonIds, force = true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                photosFailed = true
+                onLink(linkOf(e))
+            } finally {
+                photosLoading = false
+            }
+        }
+    }
+
+    /** Для пары держим только два изображения по 1000 px, независимо от длины ленты. */
+    val comparisonImages = mutableStateMapOf<Uuid, ImageBitmap?>()
+    val comparisonErrors = mutableStateMapOf<Uuid, String>()
+    private var comparisonIds = emptySet<Uuid>()
+    private var comparisonJob: Job? = null
+    private var comparisonGeneration = 0
+
+    fun comparePhotos(ids: Set<Uuid>, force: Boolean = false) {
+        if (!force && ids == comparisonIds && comparisonImages.keys.containsAll(ids)) return
+        comparisonIds = ids
+        val generation = ++comparisonGeneration
+        comparisonJob?.cancel()
+        comparisonImages.keys.toList().filter { it !in ids || (force && it in comparisonErrors) }.forEach(comparisonImages::remove)
+        comparisonErrors.keys.toList().filter { it !in ids || force }.forEach(comparisonErrors::remove)
+        comparisonJob = scope.launch {
+            ids.filter { comparisonImages[it] == null }.forEach { id ->
+                if (generation != comparisonGeneration) return@launch
+                comparisonErrors.remove(id)
+                comparisonImages[id] = null
+                try {
+                    val bytes = api.photoFile(id)
+                    onLink(Link.ONLINE)
+                    try {
+                        val image = decodeImage(bytes, 1000)
+                        if (generation == comparisonGeneration) comparisonImages[id] = image
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Throwable) {
+                        if (generation == comparisonGeneration) comparisonErrors[id] = "Не удалось показать формат фото"
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    if (generation == comparisonGeneration) {
+                        comparisonErrors[id] = "Не удалось загрузить фото"
+                        onLink(linkOf(e))
+                    }
+                }
+            }
         }
     }
 
@@ -127,6 +209,8 @@ class Progress(
                 .onSuccess {
                     photos = photos.filterNot { it.id == id }
                     thumbs.remove(id)
+                    comparisonImages.remove(id)
+                    comparisonErrors.remove(id)
                     if (opened?.first == id) opened = null
                 }
                 .onFailure { deleteError = "Не удалилось: " + reason(it) }
@@ -229,6 +313,9 @@ class Progress(
 
     /** Сеть вернулась — фото, которое ждало, уходит само. */
     fun retry() {
+        exerciseFailed.filterValues { it }.keys.toList().forEach(::loadExercise)
+        if (photosFailed) loadPhotos(force = true)
+        if (comparisonErrors.isNotEmpty()) comparePhotos(comparisonIds, force = true)
         val t = lastTakenAt ?: return
         if (waitingForNetwork && draft != null) upload(t, lastPose)
     }

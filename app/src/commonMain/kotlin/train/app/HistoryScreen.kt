@@ -121,7 +121,7 @@ private fun HistoryCard(app: AppState, w: Workout) {
 
 @Composable
 fun HistoryDetail(app: AppState, id: Uuid) {
-    val w = app.cache.workouts.firstOrNull { it.id == id }
+    val w = app.cache.workouts.firstOrNull { it.id == id } ?: app.comparisonWorkouts[id]
     LaunchedEffect(id) {
         app.loadComparison(id)
         app.progress.loadPhotos()
@@ -134,7 +134,7 @@ fun HistoryDetail(app: AppState, id: Uuid) {
             confirm = true
         }
         if (confirm && w != null) {
-            Sheet({ if (!app.erasing) confirm = false }) {
+            Sheet({ confirm = false }, dismissEnabled = !app.erasing) {
                 EraseSheet(app, w, onCancel = { confirm = false }) {
                     confirm = false
                     app.back()
@@ -191,9 +191,10 @@ private fun EraseLink(onClick: () -> Unit) {
 @Composable
 private fun HistoryPage(app: AppState, id: Uuid, w: Workout?, c: Comparison?, onErase: () -> Unit) {
     Page {
-        BackLink("История", app::back)
+        BackLink(if (app.stack.dropLast(1).lastOrNull() is Screen.Exercise) "К упражнению" else "История", app::back)
         if (w == null) {
-            Txt("Тренировка не найдена", T.h1)
+            Txt(if (app.comparisonLoading[id] == true) "Загружаю тренировку…" else app.comparisonErrors[id] ?: "Загружаю тренировку…", T.h1)
+            if (app.comparisonErrors[id] != null) Btn("Повторить загрузку", { app.loadComparison(id) }, kind = Kind.Ghost)
             return@Page
         }
         Txt((w.date ?: w.startedAt.date()).long() + " · " + w.startedAt.clock() + (w.finishedAt?.let { "–" + it.clock() } ?: ""), T.kicker)
@@ -241,7 +242,8 @@ private fun HistoryPage(app: AppState, id: Uuid, w: Workout?, c: Comparison?, on
 
         if (c == null) {
             Section("Упражнения")
-            Txt(if (app.link == Link.ONLINE) "Загружаю разбор…" else "Разбор придёт с сервера, когда будет связь", T.meta)
+            Txt(app.comparisonErrors[id] ?: if (app.link == Link.ONLINE) "Загружаю разбор…" else "Разбор придёт с сервера, когда будет связь", T.meta)
+            if (app.comparisonErrors[id] != null) Btn("Повторить загрузку", { app.loadComparison(id) }, kind = Kind.Ghost)
             EraseLink(onErase)
             return@Page
         }
@@ -286,9 +288,9 @@ private fun ExerciseCard(app: AppState, item: ItemComparison, tint: Tint) {
     Surface(Modifier.fillMaxWidth(), radius = 14.dp) {
         Column(Modifier.padding(top = 10.dp, bottom = 8.dp)) {
             Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Thumb(app, ex, tint, 48.dp, grey = grey)
+                Thumb(app, ex, tint, 48.dp, Modifier.exerciseLink(app, item.exerciseId, item.name ?: ex?.nameRu), grey = grey)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Txt(item.name ?: ex?.nameRu ?: "Упражнение", ts(15.sp, if (grey) C.Muted else C.Text, FontWeight.SemiBold), maxLines = 2)
+                    Txt(item.name ?: ex?.nameRu ?: "Упражнение", ts(15.sp, if (grey) C.Muted else C.Text, FontWeight.SemiBold), Modifier.exerciseLink(app, item.exerciseId, item.name ?: ex?.nameRu), maxLines = 2)
                     when (out) {
                         ItemOutcome.ADDED -> IconText(Icon.Plus, "вне плана", C.Good)
                         ItemOutcome.REPLACED -> IconText(Icon.Swap, "вместо «${item.replacedFrom?.let { app.exercise(it)?.nameRu } ?: "?"}»", C.Warn)

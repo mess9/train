@@ -197,7 +197,7 @@ private fun ElsewhereRow(w: Workout, title: String, today: kotlinx.datetime.Loca
 fun AskSheet(app: AppState) {
     val a = app.ask ?: return
     val close = { if (!app.taking) app.ask = null }
-    Sheet(close) {
+    Sheet(close, dismissEnabled = !app.taking) {
         val other = when (a) {
             is Ask.Take -> a.workout
             is Ask.Start -> a.other
@@ -325,6 +325,22 @@ fun PlanView(app: AppState, id: Uuid) {
             Gap(12.dp)
             Surface(Modifier.fillMaxWidth(), C.Field, radius = 12.dp) { Txt(it, ts(14.sp, C.Soft), Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) }
         }
+        if (p.body.equipment.isNotEmpty()) {
+            Gap(12.dp)
+            Surface(Modifier.fillMaxWidth(), C.Field, radius = 12.dp) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // Начальная расстановка — шаг без упражнения и подписи (или с подписью «Начало»)
+                    val changes = p.body.equipment.count { it.label { "" } != "Начало" }
+                    Txt("Оборудование" + if (changes > 0) " · $changes ${plural(changes, "смена", "смены", "смен")}" else "", T.strong)
+                    p.body.equipment.forEach { step ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Txt(step.label { app.exercise(it)?.nameRu }, T.meta, Modifier.weight(1f))
+                            Txt(step.setup, ts(14.sp, C.Soft), Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
         val layout = remember(p) { p.body.snapshot(app::exercise) }
         val tints = tints(layout.blocks.map { it.role })
         // Порядок внутри блока меняется, пока план не начат: потом он заморожен
@@ -344,9 +360,9 @@ fun PlanView(app: AppState, id: Uuid) {
                 val ex = app.exercise(item.exerciseId)
                 Surface(Modifier.fillMaxWidth(), tints[i].card, if (lifted) tints[i].tint else tints[i].line, 12.dp) {
                     Row(Modifier.padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Thumb(app, ex, tints[i], 40.dp)
+                        Thumb(app, ex, tints[i], 40.dp, Modifier.exerciseLink(app, item.exerciseId, ex?.nameRu))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Txt(ex?.nameRu ?: "Упражнение не в справочнике", T.strong)
+                            Txt(ex?.nameRu ?: "Упражнение не в справочнике", T.strong, Modifier.exerciseLink(app, item.exerciseId, ex?.nameRu))
                             Txt(planTarget(b, item, if (circuit) passes else 1), T.meta)
                             item.note?.let { Txt(it, T.small) }
                         }

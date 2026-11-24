@@ -112,6 +112,14 @@ private val openSaver = listSaver<Set<Uuid>, String>({ it.map(Uuid::toString) },
 
 private val keysSaver = listSaver<Set<String>, String>({ it.toList() }, { it.toSet() })
 
+private val orderSaver = listSaver<Map<Uuid, List<Uuid>>, String>(
+    { order -> order.map { (block, items) -> "$block|${items.joinToString(",")}" } },
+    { rows -> rows.associate { row ->
+        val (block, items) = row.split('|', limit = 2)
+        Uuid.parse(block) to items.split(',').filter(String::isNotEmpty).map(Uuid::parse)
+    } },
+)
+
 /** Ключ строки подхода: упражнение раскладки и номер. */
 private fun rowKey(item: LayoutItem, setNo: Int) = "${item.id}-$setNo"
 
@@ -129,24 +137,28 @@ fun WorkoutScreen(app: AppState) {
         LaunchedEffect(Unit) { app.root(Screen.Home) }
         return
     }
-    val now = rememberNow()
+    // При отметке подхода секундный тик ещё старый: свежий рекорд показываем в этом же кадре.
+    val now = maxOf(rememberNow(), Clock.System.now())
+    val records = app.workoutRecords.keys
     var open by rememberSaveable(stateSaver = openSaver) { mutableStateOf(setOf<Uuid>()) }
     // Выполненные подходы, открытые для правки: строка снова с полями и оценками
     var editing by rememberSaveable(stateSaver = keysSaver) { mutableStateOf(setOf<String>()) }
     var reorder by rememberSaveable { mutableStateOf(false) }
     // Порядок до перестановки — для «Отмены»; стрелки двигают сразу, «Закрепить» оставляет как есть
-    var orderBefore by remember { mutableStateOf<Map<Uuid, List<Uuid>>?>(null) }
+    var orderBefore by rememberSaveable(stateSaver = orderSaver) { mutableStateOf(emptyMap()) }
     var sheet by remember { mutableStateOf<WSheet?>(null) }
 
     fun endReorder(keep: Boolean) {
         val before = orderBefore
-        if (!keep && before != null) {
+        if (!keep && before.isNotEmpty()) {
             haptic(Haptic.Undo)
             app.act { restoreOrder(before) }
         }
-        orderBefore = null
+        orderBefore = emptyMap()
         reorder = false
     }
+    BackLayer(enabled = editing.isNotEmpty(), priority = 10) { editing = emptySet() }
+    BackLayer(enabled = reorder, priority = 20) { endReorder(keep = false) }
 
     // Сигнал конца отдыха и таймера — в Main.kt: он нужен и на «Технике»
     val rest = app.rest
@@ -240,6 +252,8 @@ fun WorkoutScreen(app: AppState) {
                             bp.items.forEachIndexed { pos, item ->
                                 ExerciseCard(
                                     app, bp, item, tints[i],
+                                    recordIds = records,
+                                    now = now,
                                     expanded = item.id in open && !reorder,
                                     reorder = reorder,
                                     first = pos == 0,
@@ -285,7 +299,7 @@ fun WorkoutScreen(app: AppState) {
                             app, b, item,
                             expanded = item.id in open,
                             onClose = { sheet = it },
-                            onReorder = { orderBefore = app.session?.order; reorder = true; sheet = null },
+                            onReorder = { orderBefore = app.session?.order.orEmpty(); reorder = true; sheet = null },
                             onExpand = { on -> open = if (on) open + item.id else open - item.id },
                         )
                     }
@@ -441,6 +455,8 @@ private fun ExerciseCard(
     bp: BlockPasses,
     item: LayoutItem,
     tint: Tint,
+    recordIds: Set<Uuid>,
+    now: Instant,
     expanded: Boolean,
     reorder: Boolean,
     first: Boolean,
@@ -457,24 +473,34 @@ private fun ExerciseCard(
     val next = bp.next(item)
     val complete = next == null && rows.isNotEmpty()
     val grey = complete && !expanded
+    val freshRecord = rows.firstOrNull { row ->
+        row.fact?.id in recordIds && row.fact?.doneAt?.let { now - it in 0.seconds..2.seconds } == true
+    }
     val shown = when {
         reorder -> emptyList()
         expanded -> rows
-        else -> bp.collapsedRows(item, app.justRated?.takeIf { it.first == item.id }?.second)
+        else -> (bp.collapsedRows(item, app.justRated?.takeIf { it.first == item.id }?.second) + listOfNotNull(freshRecord))
+            .distinctBy { it.setNo }.sortedBy { it.setNo }
     }
     val replacedName = item.replacedFrom?.let { app.exercise(it)?.nameRu }
     val meta = if (complete) rows.mapNotNull { it.fact }.joinToString(" · ") { short(it.recordType, it.values) } else itemMeta(item, replacedName)
+    val record = complete && rows.any { it.fact?.id in recordIds }
+    val description = "${ex?.nameRu ?: "Упражнение"}: $meta" + if (record) " · рекорд" else ""
     Surface(Modifier.fillMaxWidth(), if (grey) C.DoneCard else tint.card, if (grey) C.DoneLine else tint.line, 14.dp) {
         Column {
             Row(Modifier.padding(start = 6.dp, top = 6.dp, bottom = 6.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Thumb(app, ex, tint, 40.dp, Modifier.clip(RoundedCornerShape(8.dp)).tap { app.go(Screen.Technique(item.exerciseId)) }, grey = grey)
-                Column(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).tapQuiet { haptic(Haptic.Tick); onToggle() }.padding(vertical = 2.dp)) {
+                Thumb(app, ex, tint, 40.dp, Modifier.exerciseLink(app, item.exerciseId, ex?.nameRu), grey = grey)
+                Column(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).tapQuiet { haptic(Haptic.Tick); onToggle() }
+                    .semantics { contentDescription = description }.padding(vertical = 2.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Txt(ex?.nameRu ?: "Упражнение не в справочнике", ts(15.sp, if (grey) C.Done else C.Text, FontWeight.SemiBold), Modifier.weight(1f, fill = false), maxLines = 1)
                         if (item.liked) Ico(Icon.Heart, 14.dp, C.Heart, 1.5f, fill = true)
                         if (item.disliked) Ico(Icon.Dislike, 14.dp, C.Dislike, 1.5f, fill = true)
                     }
-                    Txt(meta, ts(12.sp, if (grey) C.Done else C.Muted), maxLines = 1)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Txt(meta, ts(12.sp, if (grey) C.Done else C.Muted), Modifier.weight(1f, fill = false), maxLines = 1)
+                        if (record) Ico(Icon.Trophy, 14.dp, C.Record)
+                    }
                     item.comment?.let {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             Ico(Icon.Note, 12.dp, if (grey) C.Done else C.Muted, 2f)
@@ -509,6 +535,8 @@ private fun ExerciseCard(
                                 row.setNo, row.fact?.doneAt?.clock(), row.fact?.recordType ?: item.recordType, row.values(s.previous), row.fact?.rating,
                                 Modifier.clip(RoundedCornerShape(10.dp)).tap { onEdit(key) },
                                 prev = short(item.recordType, row.last(s.previous)?.values),
+                                record = row.fact?.id in recordIds,
+                                recordFresh = row.fact?.doneAt?.let { now - it in 0.seconds..2.seconds } == true,
                             )
                         } else {
                             SetLine(app, bp.block, item, row, row == next, s.previous, onRate, of, onNo = if (row.done) ({ onEdit(key) }) else null)
@@ -848,9 +876,9 @@ private fun MenuSheet(
         MenuItem(if (item.liked) "Убрать сердечко" else "Очень понравилось", onClick = ::toggleLike)
         MenuItem(if (item.disliked) "Убрать дизлайк" else "Не понравилось", onClick = ::toggleDislike)
         MenuItem(if (item.comment == null) "Заметка к упражнению…" else "Изменить заметку…") { onClose(WSheet.Comment(b.id, item.id)) }
-        MenuItem("Техника и мышцы") {
+        MenuItem("Упражнение и прогресс") {
             onClose(null)
-            app.go(Screen.Technique(item.exerciseId))
+            app.go(Screen.Exercise(item.exerciseId))
         }
         MenuItem("Заменить упражнение") { onClose(WSheet.Add(b.id, item.id)) }
         MenuItem("Добавить подход") {

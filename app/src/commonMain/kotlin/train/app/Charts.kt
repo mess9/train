@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -33,10 +32,18 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.layout.onSizeChanged
+import kotlinx.datetime.TimeZone
+import kotlin.time.Instant
+import train.core.trendPoints
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import train.core.BODYWEIGHT
@@ -382,54 +389,90 @@ fun HoursChart(period: StatsPeriod, buckets: List<Bucket>, minutes: List<Int>, m
     }
 }
 
-/**
- * Вес тела линией. Взвешивание на тренировке — залитая точка: по нему считан её объём.
- * [points] — уже отобранные и по времени.
- */
+/** Универсальная точка; подпись может описывать лучший подход вместо одного числа. */
+data class ChartPoint(val at: Instant, val value: Double, val filled: Boolean, val label: String? = null)
+
+/** Общая геометрия для рисования и попадания пальцем в точку. */
+private class LineGeometry(points: List<ChartPoint>, size: IntSize, density: Float) {
+    val left = 42f * density
+    private val right = maxOf(left, size.width - 8f * density)
+    private val top = 12f * density
+    private val bottom = maxOf(top, size.height - 22f * density)
+    val low = points.minOf { it.value } - 0.5
+    val high = points.maxOf { it.value } + 0.5
+    private val first = points.first().at.toEpochMilliseconds()
+    private val span = points.last().at.toEpochMilliseconds() - first
+    fun y(value: Double) = (bottom - (bottom - top) * ((value - low) / (high - low))).toFloat()
+    fun position(point: ChartPoint) = Offset(
+        if (span == 0L) (left + right) / 2 else
+            (left + (right - left) * ((point.at.toEpochMilliseconds() - first).toDouble() / span)).toFloat(),
+        y(point.value),
+    )
+}
+
 @Composable
-fun WeightChart(points: List<Measurement>, modifier: Modifier = Modifier) {
+fun LineChart(points: List<ChartPoint>, unit: String, modifier: Modifier = Modifier, title: String = "График") {
+    val ordered = remember(points) { points.filter { it.value.isFinite() }.sortedBy { it.at } }
+    var selected by remember(ordered) { mutableStateOf<ChartPoint?>(null) }
+    var chartSize by remember { mutableStateOf(IntSize.Zero) }
+    val density = androidx.compose.ui.platform.LocalDensity.current.density
+    val geometry = remember(ordered, chartSize, density) {
+        ordered.takeIf { it.isNotEmpty() }?.let { LineGeometry(it, chartSize, density) }
+    }
     val tm = rememberTextMeasurer()
     val axis = ts(10.sp, C.Faint)
-    Canvas(modifier.fillMaxWidth().height(150.dp)) {
-        if (points.size < 2) return@Canvas
-        val left = 34.dp.toPx()
-        val top = 8.dp.toPx()
-        val bottom = size.height - 18.dp.toPx()
-        val lo = points.minOf { it.value } - 0.5
-        val hi = points.maxOf { it.value } + 0.5
-        val t0 = points.first().measuredAt.toEpochMilliseconds().toDouble()
-        val span = (points.last().measuredAt.toEpochMilliseconds() - t0).coerceAtLeast(1.0)
-        fun x(m: Measurement) = (left + 6.dp.toPx() + (size.width - left - 12.dp.toPx()) * ((m.measuredAt.toEpochMilliseconds() - t0) / span)).toFloat()
-        fun y(v: Double) = (bottom - (bottom - top) * ((v - lo) / (hi - lo))).toFloat()
-        // Метки — максимум, середина, минимум, округлённые до 0,1; совпавшие (вес не менялся) — одной
-        listOf(hi - 0.5, (hi + lo) / 2, lo + 0.5).map { (it * 10).roundToInt() / 10.0 }.distinct().forEach { v ->
-            drawLine(C.Border, Offset(left, y(v)), Offset(size.width, y(v)), 1.dp.toPx())
-            val t = tm.measure(num(v), axis)
-            drawText(t, topLeft = Offset(left - t.size.width - 6.dp.toPx(), y(v) - t.size.height / 2))
-        }
-        val line = Path().apply {
-            points.forEachIndexed { i, m -> if (i == 0) moveTo(x(m), y(m.value)) else lineTo(x(m), y(m.value)) }
-        }
-        drawPath(line, C.Lime, style = Stroke(2.dp.toPx()))
-        points.forEach { m ->
-            val p = Offset(x(m), y(m.value))
-            if (m.workoutId != null) drawCircle(C.Lime, 4.dp.toPx(), p)
-            else {
-                drawCircle(C.Bg, 4.dp.toPx(), p)
-                drawCircle(C.Lime, 4.dp.toPx(), p, style = Stroke(1.5.dp.toPx()))
+    fun caption(point: ChartPoint) = "${point.at.date().dayMonth()} ${point.at.date().year} · ${point.label ?: "${num(point.value)} $unit"}"
+    Column(modifier) {
+        Canvas(Modifier.fillMaxWidth().height(150.dp).onSizeChanged { chartSize = it }
+            .semantics {
+                contentDescription = title
+                customActions = ordered.map { point -> CustomAccessibilityAction(caption(point)) { selected = point; true } }
+            }.pointerInput(ordered, geometry) {
+                detectTapGestures { tap ->
+                    selected = geometry?.let { g ->
+                        ordered.minByOrNull { (g.position(it) - tap).getDistanceSquared() }
+                            ?.takeIf { (g.position(it) - tap).getDistance() <= 24 * density }
+                    }
+                }
+            }) {
+            val g = geometry ?: return@Canvas
+            listOf(g.high - 0.5, (g.high + g.low) / 2, g.low + 0.5)
+                .map { (it * 10).roundToInt() / 10.0 }.distinct().forEach { value ->
+                    drawLine(C.Border, Offset(g.left, g.y(value)), Offset(size.width, g.y(value)), 1.dp.toPx())
+                    val text = tm.measure(num(value), axis)
+                    drawText(text, topLeft = Offset(g.left - text.size.width - 6.dp.toPx(), g.y(value) - text.size.height / 2))
+                }
+            if (ordered.size > 1) {
+                val path = Path().apply {
+                    ordered.forEachIndexed { i, point ->
+                        val p = g.position(point)
+                        if (i == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y)
+                    }
+                }
+                drawPath(path, C.Lime, style = Stroke(2.dp.toPx()))
+            }
+            ordered.forEach { point ->
+                val pos = g.position(point)
+                if (point == selected) drawCircle(C.Lime.copy(alpha = 0.2f), 10.dp.toPx(), pos)
+                drawCircle(if (point.filled) C.Lime else C.Bg, 4.dp.toPx(), pos)
+                if (!point.filled) drawCircle(C.Lime, 4.dp.toPx(), pos, style = Stroke(1.5.dp.toPx()))
+            }
+            val first = tm.measure(ordered.first().at.date().dm(), axis)
+            drawText(first, topLeft = Offset(g.left, size.height - first.size.height))
+            if (ordered.last().at.date() != ordered.first().at.date()) {
+                val last = tm.measure(ordered.last().at.date().dm(), axis)
+                drawText(last, topLeft = Offset(size.width - last.size.width, size.height - last.size.height))
             }
         }
-        val first = tm.measure(points.first().measuredAt.date().dm(), axis)
-        val last = tm.measure(points.last().measuredAt.date().dm(), axis)
-        drawText(first, topLeft = Offset(left, size.height - first.size.height))
-        if (points.last().measuredAt.date() != points.first().measuredAt.date())
-            drawText(last, topLeft = Offset(size.width - last.size.width, size.height - last.size.height))
+        Txt(selected?.let { caption(it) } ?: "Коснись точки — дата и значение", T.small, Modifier.padding(top = 6.dp))
     }
 }
 
-/** Взвешивания для графика: за период, а если там меньше двух — последние двенадцать. */
-fun weightPoints(all: List<Measurement>, from: kotlinx.datetime.LocalDate): Pair<List<Measurement>, Boolean> {
-    val weights = all.filter { it.type == BODYWEIGHT && !it.deleted }.sortedBy { it.measuredAt }
-    val inPeriod = weights.filter { it.measuredAt.date() >= from }
-    return if (inPeriod.size >= 2) inPeriod to true else weights.takeLast(12) to false
-}
+/** Залитая точка — вес после тренировки, по которому считан её объём. */
+@Composable
+fun WeightChart(points: List<Measurement>, modifier: Modifier = Modifier) = LineChart(
+    points.map { ChartPoint(it.measuredAt, it.value, it.workoutId != null) }, "кг", modifier, "График: Вес",
+)
+
+fun weightPoints(all: List<Measurement>, from: kotlinx.datetime.LocalDate): Pair<List<Measurement>, Boolean> =
+    trendPoints(all, BODYWEIGHT, from, TimeZone.currentSystemDefault())

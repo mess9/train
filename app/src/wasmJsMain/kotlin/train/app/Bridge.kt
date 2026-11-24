@@ -139,15 +139,25 @@ actual fun onVisible(action: () -> Unit) = document.addEventListener("visibility
 
 /** История браузера: в `state` записи — глубина. */
 actual object BackStack {
+    private val listeners = mutableListOf<() -> Unit>()
+    private var installed = false
+    private val history = train.core.BackHistorySync(
+        { depth() },
+        { window.history.pushState(it.toJsNumber(), "") },
+        { window.history.go(it) },
+        { listeners.toList().forEach { it() } },
+    )
+
     actual fun depth(): Int = (window.history.state as? JsNumber)?.toInt() ?: 0
 
-    actual fun push(depth: Int) = window.history.pushState(depth.toJsNumber(), "")
+    actual fun sync(depth: Int) {
+        if (!installed) {
+            if (window.history.state !is JsNumber) window.history.replaceState(0.toJsNumber(), "")
+            window.addEventListener("popstate") { history.popped() }
+            installed = true
+        }
+        history.sync(depth)
+    }
 
-    actual fun replace(depth: Int) = window.history.replaceState(depth.toJsNumber(), "")
-
-    actual fun go(delta: Int) = window.history.go(delta)
-
-    actual fun back() = window.history.back()
-
-    actual fun onPop(action: () -> Unit) = window.addEventListener("popstate") { action() }
+    actual fun onPop(action: () -> Unit) { listeners += action }
 }

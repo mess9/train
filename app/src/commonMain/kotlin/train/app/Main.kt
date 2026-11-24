@@ -23,6 +23,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -54,49 +56,58 @@ fun Root() {
         }
         val scope = rememberCoroutineScope()
         val app = remember { AppState(scope).also { it.start() } }
-        if (app.key == null || app.session == null) {
-            Connect(app)
-            return@Box
-        }
-        TimerSignals(app)
-        val screen = app.screen
-        // Состояние экранов в стеке (прокрутка, раскрытые карточки) живёт, пока экран в стеке:
-        // вернулся с «Техники» — тренировка на том же месте
-        val saved = rememberSaveableStateHolder()
-        val keys = app.stack.mapIndexed { i, sc -> "$i:$sc" }
-        val seen = remember { mutableSetOf<String>() }
-        LaunchedEffect(keys) {
-            (seen - keys.toSet()).forEach(saved::removeState)
-            seen.retainAll(keys.toSet())
-            seen += keys
-        }
-        Column(Modifier.fillMaxSize()) {
-            Box(Modifier.weight(1f)) {
-                saved.SaveableStateProvider(keys.last()) { when (screen) {
-                    Screen.Home -> Home(app)
-                    is Screen.PlanView -> PlanView(app, screen.id)
-                    Screen.Workout -> WorkoutScreen(app)
-                    is Screen.Technique -> Technique(app, screen.exerciseId)
-                    Screen.Finish -> Finish(app)
-                    Screen.History -> History(app)
-                    is Screen.HistoryDetail -> HistoryDetail(app, screen.id)
-                    Screen.Measurements -> Measurements(app)
-                    Screen.Settings -> Settings(app)
-                } }
+        BackProvider(app.backLayers) {
+            val focus = LocalFocusManager.current
+            val keyboardController = LocalSoftwareKeyboardController.current
+            BackLayer(enabled = keyboard > 0, priority = 10000) {
+                keyboardController?.hide()
+                focus.clearFocus(force = true)
             }
-            if (screen == Screen.Home || screen == Screen.History || screen is Screen.HistoryDetail || screen == Screen.Measurements) {
-                NavBar(app, screen)
+            if (app.key == null || app.session == null) {
+                Connect(app)
+                return@BackProvider
             }
+            TimerSignals(app)
+            val screen = app.screen
+            // Состояние экранов в стеке (прокрутка, раскрытые карточки) живёт, пока экран в стеке:
+            // вернулся с упражнения — тренировка на том же месте
+            val saved = rememberSaveableStateHolder()
+            val keys = app.stack.mapIndexed { i, sc -> "$i:$sc" }
+            val seen = remember { mutableSetOf<String>() }
+            LaunchedEffect(keys) {
+                (seen - keys.toSet()).forEach(saved::removeState)
+                seen.retainAll(keys.toSet())
+                seen += keys
+            }
+            Column(Modifier.fillMaxSize()) {
+                Box(Modifier.weight(1f)) {
+                    saved.SaveableStateProvider(keys.last()) { when (screen) {
+                        Screen.Home -> Home(app)
+                        is Screen.PlanView -> PlanView(app, screen.id)
+                        Screen.Workout -> WorkoutScreen(app)
+                        is Screen.Exercise -> ExerciseScreen(app, screen.exerciseId)
+                        Screen.Finish -> Finish(app)
+                        Screen.History -> History(app)
+                        is Screen.HistoryDetail -> HistoryDetail(app, screen.id)
+                        Screen.Measurements -> Measurements(app)
+                        Screen.PhotoCompare -> PhotoCompare(app)
+                        Screen.Settings -> Settings(app)
+                    } }
+                }
+                if (screen == Screen.Home || screen == Screen.History || screen is Screen.HistoryDetail || screen == Screen.Measurements) {
+                    NavBar(app, screen)
+                }
+            }
+            // Поверх всего, вместе с нижним меню: иначе тап мимо «В корзину» уводит на другой экран
+            PhotoOverlays(app)
+            BackPriority(3000) { AskSheet(app) }
         }
-        // Поверх всего, вместе с нижним меню: иначе тап мимо «В корзину» уводит на другой экран
-        PhotoOverlays(app)
-        AskSheet(app)
     }
 }
 
 /**
  * Конец отдыха и ручного таймера — вибрация и звук. Здесь, а не на экране тренировки: сигнал
- * нужен и когда открыта «Техника».
+ * нужен и когда открыт экран упражнения.
  */
 @Composable
 private fun TimerSignals(app: AppState) {

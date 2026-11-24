@@ -50,6 +50,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -105,6 +106,8 @@ object C {
     val Danger = Color(0xFFFF6B6B)
     val Heart = Color(0xFFFF5C8A)
     val Dislike = Color(0xFFFF9F43)
+    /** Рекорды — золотые, отдельно от оценки подхода. */
+    val Record = Color(0xFFE5B94E)
     /** Выполненное: серый текст и фон карточки. */
     val Done = Color(0xFF6B7078)
     val DoneCard = Color(0xFF16171A)
@@ -206,6 +209,7 @@ enum class Icon(vararg val paths: String) {
     Timer(circle(12f, 13f, 8f), "M12 9v4l2.5 2.5", "M9.5 2.5h5"),
     More(circle(12f, 5.5f, 1f), circle(12f, 12f, 1f), circle(12f, 18.5f, 1f)),
     Dumbbell("M6.5 7v10", "M3.5 9.5v5", "M17.5 7v10", "M20.5 9.5v5", "M6.5 12h11"),
+    Trophy("M8 3h8v7a4 4 0 0 1-8 0z", "M8 5H4v2a4 4 0 0 0 4 4", "M16 5h4v2a4 4 0 0 1-4 4", "M12 14v6", "M8 21h8"),
     Home("M4 11l8-7 8 7", "M6 10v10h12V10"),
     History(circle(12f, 12f, 8f), "M12 8v4l3 2"),
     Ruler("M3 16l13-13 5 5-13 13z", "M7 12l2 2", "M10 9l2 2", "M13 6l2 2"),
@@ -520,15 +524,17 @@ fun TextArea(value: String, onChange: (String) -> Unit, placeholder: String, mod
  * содержимое, когда оно прокручено до верха. Недотянул — лист возвращается на место.
  */
 @Composable
-fun Sheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+fun Sheet(onDismiss: () -> Unit, dismissEnabled: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
     val scope = rememberCoroutineScope()
     var drag by remember { mutableFloatStateOf(0f) }
     var height by remember { mutableIntStateOf(0) }
     var closing by remember { mutableStateOf(false) }
+    val canDismiss by rememberUpdatedState(dismissEnabled)
+    BackLayer(dismissEnabled = dismissEnabled && !closing, priority = 100, onBack = onDismiss)
 
     fun settle(velocity: Float) {
         // Дальше трети высоты или резкий взмах вниз — закрыть, иначе вернуть
-        val close = drag > height / 3f || (velocity > 1200f && drag > 0f)
+        val close = canDismiss && (drag > height / 3f || (velocity > 1200f && drag > 0f))
         if (close) closing = true
         scope.launch {
             animate(drag, if (close) height.toFloat() else 0f, initialVelocity = velocity) { v, _ -> drag = v }
@@ -540,7 +546,7 @@ fun Sheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
         object : NestedScrollConnection {
             // Лист уже сдвинут, палец пошёл вверх — сперва поднять лист, потом прокручивать
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (closing || available.y >= 0f || drag <= 0f) return Offset.Zero
+                if (!canDismiss || closing || available.y >= 0f || drag <= 0f) return Offset.Zero
                 val used = maxOf(available.y, -drag)
                 drag += used
                 return Offset(0f, used)
@@ -548,7 +554,7 @@ fun Sheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
 
             // Прокрутка упёрлась в верх, палец тянет вниз — лист едет за ним
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (closing || available.y <= 0f || source != NestedScrollSource.UserInput) return Offset.Zero
+                if (!canDismiss || closing || available.y <= 0f || source != NestedScrollSource.UserInput) return Offset.Zero
                 drag += available.y
                 return Offset(0f, available.y)
             }
@@ -568,7 +574,7 @@ fun Sheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
 
     Box(Modifier.fillMaxSize()) {
         val shade = if (height > 0) 1f - (drag / height).coerceIn(0f, 1f) else 1f
-        Box(Modifier.fillMaxSize().alpha(shade).background(Color(0x8C000000)).tapQuiet(onDismiss))
+        Box(Modifier.fillMaxSize().alpha(shade).background(Color(0x8C000000)).tapQuiet { if (canDismiss && !closing) onDismiss() })
         Column(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 .onSizeChanged { height = it.height }
@@ -583,7 +589,7 @@ fun Sheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
             // Ручка: за неё тянется всегда, даже когда содержимое прокручено
             Box(
                 Modifier.fillMaxWidth().height(22.dp).draggable(
-                    rememberDraggableState { d -> if (!closing) drag = (drag + d).coerceAtLeast(0f) },
+                    rememberDraggableState { d -> if (canDismiss && !closing) drag = (drag + d).coerceAtLeast(0f) },
                     Orientation.Vertical,
                     onDragStopped = { v -> if (!closing) settle(v) },
                 ),
@@ -591,7 +597,7 @@ fun Sheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
             ) {
                 Box(Modifier.width(40.dp).height(4.dp).clip(CircleShape).background(C.Dash))
             }
-            content()
+            NestedBackPriority(100) { content() }
         }
     }
 }

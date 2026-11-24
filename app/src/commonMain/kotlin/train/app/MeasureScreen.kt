@@ -1,6 +1,8 @@
 package train.app
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -8,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
 import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
@@ -17,7 +20,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -37,6 +44,8 @@ import train.core.buckets
 import train.core.minutesBy
 import train.core.newId
 import train.core.workoutForMeasurement
+import train.core.trendPoints
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 import kotlin.time.Clock
@@ -69,6 +78,11 @@ fun foldLabel(type: String) = folds.firstOrNull { it.type == type }?.label ?: ty
 /** Строка дня в «Раньше»: замеры и процент жира. */
 private val dayFields = mfields + listOf(MField(BODYFAT, "", "%", "Жир"), MField(BODYFAT_PHOTO, "", "%", "Жир по фото"))
 
+private val trendFields = mfields.drop(1) + listOf(
+    MField(BODYFAT, "", "%", "Жир по складкам"),
+    MField(BODYFAT_PHOTO, "", "%", "Жир по фото"),
+)
+
 private fun StatsPeriod.label() = when (this) {
     StatsPeriod.WEEK -> "Неделя"
     StatsPeriod.MONTH -> "Месяц"
@@ -78,7 +92,7 @@ private fun StatsPeriod.label() = when (this) {
 
 @Composable
 fun Measurements(app: AppState) {
-    var period by remember { mutableStateOf(StatsPeriod.MONTH) }
+    val period = app.measurementPeriod
     val today = app.today()
     val buckets = remember(period, today) { period.buckets(today) }
     val from = buckets.first().from
@@ -93,7 +107,7 @@ fun Measurements(app: AppState) {
         Gap(6.dp)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             StatsPeriod.entries.forEach { p ->
-                Btn(p.label(), { period = p }, Modifier.weight(1f), if (p == period) Kind.ChipOn else Kind.Chip)
+                Btn(p.label(), { app.measurementPeriod = p }, Modifier.weight(1f), if (p == period) Kind.ChipOn else Kind.Chip)
             }
         }
         Gap(12.dp)
@@ -131,6 +145,7 @@ fun Measurements(app: AppState) {
                 if (!inPeriod) Txt("последние ${points.size}: за период меньше двух", T.small)
             }
         }
+        BodyMeasurementTrends(app, all, from, period)
         Gap(12.dp)
         Height(app)
 
@@ -138,6 +153,10 @@ fun Measurements(app: AppState) {
         PhotoButtons(app, null)
         Gap(10.dp)
         val photos = app.progress.photos
+        if (train.core.comparisonGroups(photos).isNotEmpty()) {
+            Btn("Сравнить фото", { app.go(Screen.PhotoCompare) }, Modifier.fillMaxWidth(), Kind.Ghost)
+            Gap(10.dp)
+        }
         when {
             photos.isNotEmpty() -> PhotoGrid(app, photos)
             app.progress.photosLoaded -> Txt("Фото ещё нет. Снимок из галереи можно отнести к прошлому дню", T.meta)
@@ -161,6 +180,57 @@ fun Measurements(app: AppState) {
                 PlanRow(day.short(), text.ifEmpty { "${ms.size} ${plural(ms.size, "замер", "замера", "замеров")}" }, {
                     if (linked != null) Ico(Icon.Dumbbell, 16.dp, C.Lime)
                 }, linked?.takeIf { id -> app.cache.workouts.any { it.id == id } }?.let { id -> { app.go(Screen.HistoryDetail(id)) } })
+            }
+        }
+    }
+}
+
+@Composable
+private fun BodyMeasurementTrends(app: AppState, all: List<Measurement>, from: LocalDate, period: StatsPeriod) {
+    val available = trendFields.mapNotNull { field ->
+        val selection = trendPoints(all, field.type, from, TimeZone.currentSystemDefault())
+        selection.takeIf { it.first.isNotEmpty() }?.let { field to it }
+    }
+    if (available.isEmpty()) return
+    Section("Замеры тела")
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        available.forEach { (field, selection) ->
+            val (points, inPeriod) = selection
+            val expanded = app.expandedMeasurements[field.type] == true
+            val latest = "${num(points.last().value)}${unitRu(field.unit)}"
+            val change = if (points.size < 2) "Один замер — линия появится со вторым" else {
+                val delta = points.last().value - points.first().value
+                val amount = num(abs(delta))
+                val sign = if (amount == "0") "" else if (delta < 0) "−" else "+"
+                val since = if (!inPeriod) "с ${points.first().measuredAt.date().dayMonth()}" else when (period) {
+                    StatsPeriod.WEEK -> "за неделю"
+                    StatsPeriod.MONTH -> "за месяц"
+                    StatsPeriod.QUARTER -> "за 3 месяца"
+                    StatsPeriod.YEAR -> "за год"
+                }
+                "$sign$amount${if (field.unit == "%") " п.п." else unitRu(field.unit)} $since"
+            }
+            Column {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Card)
+                        .tap { app.expandedMeasurements[field.type] = !expanded }
+                        .semantics {
+                            contentDescription = "Тренд: ${field.short}, $latest, $change"
+                            stateDescription = if (expanded) "Развёрнуто" else "Свёрнуто"
+                        }.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Txt("${field.short} · $latest", T.strong)
+                        Txt(change, T.meta, Modifier.padding(top = 4.dp))
+                    }
+                    Txt(if (expanded) "−" else "+", T.meta)
+                }
+                if (expanded) LineChart(
+                    points.map { ChartPoint(it.measuredAt, it.value, it.workoutId != null) },
+                    unitRu(field.unit).trim(), title = "График: ${field.short}",
+                )
             }
         }
     }

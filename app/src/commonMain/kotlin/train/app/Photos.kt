@@ -107,8 +107,11 @@ private fun PhotoTile(app: AppState, photo: Photo, modifier: Modifier) {
 @Composable
 fun PhotoOverlays(app: AppState) {
     val p = app.progress
-    p.draft?.let { DraftSheet(app, it) }
-    p.opened?.let { (id, img) -> Viewer(app, p.photos.firstOrNull { it.id == id }, id, img) }
+    BackPriority(1000) {
+        BackLayer(enabled = p.picking != Picking.None, dismissEnabled = p.picking == Picking.Waiting) { p.stopPicking() }
+        p.draft?.let { DraftSheet(app, it) }
+    }
+    p.opened?.let { (id, img) -> BackPriority(2000) { Viewer(app, p.photos.firstOrNull { it.id == id }, id, img) } }
 }
 
 @Composable
@@ -132,7 +135,7 @@ private fun DraftSheet(app: AppState, d: PhotoDraft) {
         }
         picking = false
     }
-    Sheet({ if (!p.uploading) p.discard() }) {
+    Sheet(p::discard, dismissEnabled = !p.uploading) {
         Txt(if (d.workoutId != null) "Фото к тренировке" else "Фото прогресса", T.strong)
         Box(Modifier.fillMaxWidth().heightIn(max = 300.dp).clip(RoundedCornerShape(12.dp)).background(C.Bg), contentAlignment = Alignment.Center) {
             if (d.preview != null) Image(d.preview, null, Modifier.fillMaxWidth().heightIn(max = 300.dp), contentScale = ContentScale.Fit)
@@ -179,6 +182,8 @@ private fun DraftSheet(app: AppState, d: PhotoDraft) {
 private fun Viewer(app: AppState, photo: Photo?, id: Uuid, img: androidx.compose.ui.graphics.ImageBitmap?) {
     val p = app.progress
     var confirm by remember(id) { mutableStateOf(false) }
+    BackLayer { p.closePhoto() }
+    BackLayer(enabled = confirm, priority = 10) { confirm = false }
     Box(Modifier.fillMaxSize().background(Color.Black).tapQuiet {}) {
         if (img != null) Image(img, null, Modifier.fillMaxSize().padding(top = 64.dp, bottom = 96.dp), contentScale = ContentScale.Fit)
         else Txt("Загружаю…", T.meta, Modifier.align(Alignment.Center))

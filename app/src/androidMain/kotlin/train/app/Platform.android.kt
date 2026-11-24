@@ -256,8 +256,7 @@ actual fun onVisible(action: () -> Unit) {
 
 /**
  * Своя история шагов вместо истории браузера: кнопка и жест «назад» системы идут в [systemBack],
- * пока приложение не на главной; на главной «назад» — системе (свернуть). Как у браузера: [go] и
- * [back] меняют глубину и сообщают об этом через [onPop].
+ * пока есть экраны или временные слои; на корне «назад» — системе (свернуть).
  */
 actual object BackStack {
     private var depth = 0
@@ -271,16 +270,7 @@ actual object BackStack {
         callback?.isEnabled = depth > 0
     }
 
-    actual fun push(depth: Int) = set(depth)
-
-    actual fun replace(depth: Int) = set(depth)
-
-    actual fun go(delta: Int) {
-        set(depth + delta)
-        listeners.toList().forEach { it() }
-    }
-
-    actual fun back() = go(-1)
+    actual fun sync(depth: Int) = set(depth)
 
     actual fun onPop(action: () -> Unit) {
         listeners += action
@@ -288,10 +278,15 @@ actual object BackStack {
 
     /** Кнопка «назад» системы: шаг назад по стеку приложения. */
     private fun systemBack() {
-        if (depth > 0) back()
+        if (depth > 0) {
+            set(depth - 1)
+            listeners.toList().forEach { it() }
+        }
     }
 
     internal fun reset() {
+        callback?.isEnabled = false
+        callback = null
         depth = 0
         listeners.clear()
     }

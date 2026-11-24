@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -38,6 +39,14 @@ import train.core.Plan
 import train.core.PlanPut
 import train.core.Profile
 import train.core.RestTimer
+import train.core.Records
+import train.core.StatsPeriod
+import train.core.BackLayers
+import train.core.close
+import train.core.ExerciseBest
+import train.core.bodyweightFor
+import train.core.withCompletedWorkout
+import train.core.withPending
 import train.core.Tools
 import train.core.Session
 import train.core.SetFact
@@ -71,7 +80,7 @@ sealed interface Screen {
 
     data object Workout : Screen
 
-    data class Technique(val exerciseId: Uuid) : Screen
+    data class Exercise(val exerciseId: Uuid) : Screen
 
     data object Finish : Screen
 
@@ -80,6 +89,7 @@ sealed interface Screen {
     data class HistoryDetail(val id: Uuid) : Screen
 
     data object Measurements : Screen
+    data object PhotoCompare : Screen
 
     data object Settings : Screen
 }
@@ -97,6 +107,7 @@ data class Cache(
     val savedAt: Instant? = null,
     /** Профиль — ради настроек телефона (вибрация); сам профиль правят через `gym profile`. */
     val profile: Profile? = null,
+    val records: Records = Records(),
 )
 
 const val KEY_KEY = "key"
@@ -198,12 +209,22 @@ class AppState(private val scope: CoroutineScope) {
 
     val screen get() = stack.last()
 
-    private val depth get() = stack.size - 1
+    /** Состояние замеров переживает переход в историю, настройки и обратно. */
+    var measurementPeriod by mutableStateOf(StatsPeriod.MONTH)
+    val expandedMeasurements = mutableStateMapOf<String, Boolean>()
+
+    val backLayers = BackLayers { syncBackDepth() }
+    private val depth get() = stack.size - 1 + backLayers.size
+    private var receivingPop = false
+
+    private fun syncBackDepth() {
+        if (!receivingPop) BackStack.sync(depth)
+    }
 
 
     fun go(s: Screen) {
         stack = stack + s
-        BackStack.push(depth)
+        syncBackDepth()
     }
 
     /** Заменить текущий экран, не добавляя шаг «назад». */
@@ -213,27 +234,45 @@ class AppState(private val scope: CoroutineScope) {
 
     /** Вкладки нижней панели и выход из тренировки: стек сначала. */
     fun root(s: Screen) {
-        val from = depth
         stack = if (s == Screen.Home) listOf(Screen.Home) else listOf(Screen.Home, s)
-        // Запись нужной глубины уже есть в истории — встаём на неё, новых не добавляем
-        if (from > depth) BackStack.go(depth - from)
-        else if (from < depth) BackStack.push(depth)
+        syncBackDepth()
     }
 
     fun back() {
-        if (stack.size <= 1) return
-        if (BackStack.depth() == depth) {
-            BackStack.back()
-        } else {
-            // История разошлась со стеком — не ждём popstate, которого может не быть
-            stack = stack.dropLast(1)
-            BackStack.replace(depth)
+        if (backLayers.back()) {
+            syncBackDepth()
+            return
         }
+        if (stack.size <= 1) return
+        // Закрыть нечего (тренировку забрали) — обычный шаг назад, иначе «назад» застрянет на экране
+        if (screen == Screen.Finish && session?.workout?.active == false) leaveFinished(Screen.Home)
+        else stack = stack.dropLast(1)
+        syncBackDepth()
     }
 
     private fun onPop() {
-        val d = BackStack.depth()
-        if (d < depth) stack = stack.take(d + 1)
+        var remaining = (depth - BackStack.depth()).coerceAtLeast(0)
+        receivingPop = true
+        try {
+            while (remaining-- > 0) {
+                val previous = depth
+                back()
+                if (depth >= previous) break // Занятый слой поглощает возврат.
+            }
+        } finally {
+            receivingPop = false
+            syncBackDepth()
+        }
+    }
+
+    /** Экранное «Готово» и системная «Назад» одинаково сохраняют завершённый факт. */
+    fun leaveFinished(to: Screen) {
+        val done = session?.workout?.takeIf { !it.active } ?: return
+        rememberSessionRecords()
+        act { close() }
+        rememberWorkout(done)
+        wake(false)
+        root(to)
     }
 
     // Сессия: каждое действие сначала пишется в localStorage
@@ -260,7 +299,8 @@ class AppState(private val scope: CoroutineScope) {
         val previous = cache.lastSets.filter { it.exerciseId in ids }
         val now = Clock.System.now()
         // Смещение пояса телефона: по нему сервер считает день тренировки
-        act { start(plan, layout, exercises, previous, now, TimeZone.currentSystemDefault().offsetAt(now)) }
+        act { start(plan, layout, exercises, previous, now, TimeZone.currentSystemDefault().offsetAt(now), records = cache.records) }
+        session?.workout?.id?.let { loadWorkoutRecords(it) }
         rest = null
         wake(true)
         // На тренировке «назад» ведёт на главную, а не в план; шаг истории есть и без плана
@@ -317,10 +357,11 @@ class AppState(private val scope: CoroutineScope) {
                 val ids = d.workout.layout.blocks.flatMap { b -> b.items.map { it.exerciseId } }.toSet() + d.sets.map { it.exerciseId }
                 val previous = runCatching { c.lastSets(ids, exclude = id) }
                     .getOrElse { cache.lastSets.filter { it.exerciseId in ids && it.workoutId != id } }
+                val records = fetchRecords(c, id)
                 val s = session
                 if (key != k || s == null || s.active != null) return@launch
                 takes++
-                val next = s.taken(id).copy(workout = d.workout, sets = d.sets, exercises = cache.exercises.filter { it.id in ids }, previous = previous)
+                val next = s.taken(id).copy(workout = d.workout, sets = d.sets, exercises = cache.exercises.filter { it.id in ids }, previous = previous, records = records)
                 storage.saveSession(next)
                 session = next
                 remember(d.workout)
@@ -369,6 +410,54 @@ class AppState(private val scope: CoroutineScope) {
     }
 
     fun exercise(id: Uuid): Exercise? = session?.exercise(id) ?: cache.exercises.firstOrNull { it.id == id }
+
+    /** Кубки производятся из факта и сохранённого прошлого, отдельно не записываются. */
+    val workoutRecords: Map<Uuid, ExerciseBest> get() {
+        val s = session ?: return emptyMap()
+        val w = s.workout ?: return emptyMap()
+        return train.core.setRecords(s.sets, (cache.exercises + s.exercises).associateBy { it.id },
+            bodyweightFor(w, cache.measurements), (s.records ?: cache.records).without(w.id))
+    }
+
+    private fun pendingWorkoutIds(): Set<Uuid> = session?.outbox?.pending.orEmpty().mapNotNull {
+        when (val r = it.record) {
+            is Workout -> r.id
+            is SetFact -> r.workoutId
+            is Measurement -> r.workoutId
+        }
+    }.toSet()
+
+    private suspend fun fetchRecords(c: ApiClient, exclude: Uuid? = null): Records {
+        val pending = pendingWorkoutIds()
+        val local = cache.records
+        return try {
+            // Запрос и отправка очереди идут одновременно: учитываем её и до запроса, и после.
+            c.records(exclude = exclude).withPending(local, pending, exclude)
+                .withPending(cache.records, pendingWorkoutIds(), exclude)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            exclude?.let { cache.records.without(it) } ?: cache.records
+        }
+    }
+
+    private fun loadWorkoutRecords(id: Uuid) {
+        val k = key ?: return
+        scope.launch {
+            val best = fetchRecords(client(k), id)
+            if (key == k && session?.workout?.id == id) act { copy(records = best) }
+        }
+    }
+
+    /** Закрытый локальный факт — уже прошлое для следующей тренировки, даже без сети. */
+    fun rememberSessionRecords() {
+        val s = session ?: return
+        val w = s.workout ?: return
+        val records = (s.records ?: cache.records).without(w.id).withCompletedWorkout(
+            w, s.sets, (cache.exercises + s.exercises).associateBy { it.id }, cache.measurements,
+        )
+        saveCache(cache.copy(records = records))
+    }
 
     fun plan(id: Uuid?): Plan? = id?.let { pid -> cache.plans.firstOrNull { it.id == pid } }
 
@@ -461,13 +550,15 @@ class AppState(private val scope: CoroutineScope) {
                 val workouts = c.workouts(today.minus(DatePeriod(days = 120)), null)
                 val measurements = c.measurements()
                 val lastSets = exercises.map { it.id }.chunked(40).flatMap { c.lastSets(it) }
+                val records = fetchRecords(c)
                 val profile = runCatching { c.profile() }.getOrNull() ?: cache.profile
                 if (key != k) return@launch
                 // Тренировку этого телефона на сервере ведёт другое устройство — её забрали
                 val mine = session?.workout
                 workouts.firstOrNull { it.id == mine?.id }?.takeIf { it.device != null && it.device != deviceId && gen == takes }
                     ?.let { onTaken(it.id, it) }
-                saveCache(withUnsent(Cache(me, plans, exercises, lastSets, workouts, measurements, now, profile)))
+                saveCache(withUnsent(Cache(me, plans, exercises, lastSets, workouts, measurements, now, profile, records)))
+                session?.takeIf { it.records == null }?.workout?.id?.let { loadWorkoutRecords(it) }
                 if (link != Link.OTHER_USER) link = Link.ONLINE
                 poke()
             } catch (e: Throwable) {
@@ -729,16 +820,36 @@ class AppState(private val scope: CoroutineScope) {
         }
     }
 
-    /** Сводка за период и фото прогресса — раздел «Замеры». */
+    /** Серверный прогресс: замеры, фото и история упражнений. */
     val progress = Progress(scope, api, { link = it }) { id -> session?.outbox?.pending?.any { it.record is Workout && it.record.id == id } == true }
 
     // История: разбор с сервера, в памяти
 
     val comparisons = mutableStateMapOf<Uuid, Comparison>()
+    val comparisonWorkouts = mutableStateMapOf<Uuid, Workout>()
+    val comparisonLoading = mutableStateMapOf<Uuid, Boolean>()
+    val comparisonErrors = mutableStateMapOf<Uuid, String>()
 
     fun loadComparison(id: Uuid) {
-        if (id in comparisons) return
-        scope.launch { runCatching { api.compare(id) }.onSuccess { comparisons[id] = it }.onFailure { link = linkOf(it) } }
+        if (comparisonLoading[id] == true || (id in comparisons && (id in comparisonWorkouts || cache.workouts.any { it.id == id }))) return
+        comparisonLoading[id] = true
+        comparisonErrors.remove(id)
+        scope.launch {
+            try {
+                // История упражнения шире 120-дневного кэша списка тренировок.
+                if (cache.workouts.none { it.id == id } && id !in comparisonWorkouts)
+                    comparisonWorkouts[id] = api.workout(id).workout
+                comparisons[id] = api.compare(id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                link = linkOf(e)
+                comparisonErrors[id] = if (e is ApiException && e.status == 404) "Тренировка не найдена"
+                    else "Не удалось загрузить разбор — проверь связь и повтори"
+            } finally {
+                comparisonLoading[id] = false
+            }
+        }
     }
 
     /** Объём тренировок для списка истории: считает сервер, у телефона нет всех подходов. */
@@ -801,6 +912,8 @@ class AppState(private val scope: CoroutineScope) {
     /** Стёртую тренировку — из истории, разбора и объёмов; замеры и фото остаются без привязки. */
     private fun forget(id: Uuid) {
         comparisons.remove(id)
+        comparisonWorkouts.remove(id)
+        comparisonErrors.remove(id)
         volumes.remove(id)
         saveCache(
             cache.copy(
@@ -812,7 +925,7 @@ class AppState(private val scope: CoroutineScope) {
     }
 
     fun start() {
-        BackStack.replace(0)
+        BackStack.sync(0)
         BackStack.onPop { onPop() }
         onOnline { poke(); refresh(force = false); progress.retry() }
         onVisible {

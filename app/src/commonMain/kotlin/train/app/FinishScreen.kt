@@ -33,7 +33,6 @@ import train.core.SetValues
 import train.core.Totals
 import train.core.Workout
 import train.core.bodyweightFor
-import train.core.close
 import train.core.comment
 import train.core.compare
 import train.core.dislike
@@ -136,11 +135,12 @@ fun factLine(item: ItemComparison, fallback: RecordType): String =
 fun rememberLocalComparison(app: AppState, w: Workout): Comparison {
     val s = app.session!!
     val bodyweight = bodyweightFor(w, app.cache.measurements)
-    return remember(w, s.sets, bodyweight) {
+    val best = (s.records ?: app.cache.records).without(w.id)
+    return remember(w, s.sets, s.exercises, app.cache.exercises, s.previous, bodyweight, best) {
         // Подходы до замены ссылаются на прежнее упражнение — его в раскладке уже нет
         val ids = w.layout.blocks.flatMap { b -> b.items.flatMap { listOfNotNull(it.exerciseId, it.replacedFrom) } }.toSet() +
             s.sets.map { it.exerciseId }
-        compare(w, s.sets, ids.mapNotNull { app.exercise(it) }.associateBy { it.id }, s.previous, bodyweight)
+        compare(w, s.sets, ids.mapNotNull { app.exercise(it) }.associateBy { it.id }, s.previous, bodyweight, best = best)
     }
 }
 
@@ -156,13 +156,6 @@ fun Finish(app: AppState) {
     LaunchedEffect(Unit) { app.progress.loadPhotos() }
     var text by remember(w.id) { mutableStateOf(w.comment.orEmpty()) }
 
-    fun leave(to: Screen) {
-        val done = app.session?.workout ?: return
-        app.act { close() }
-        app.rememberWorkout(done)
-        wake(false)
-        app.root(to)
-    }
 
     Page {
         Header("Тренировка завершена", app.workoutTitle(w))
@@ -171,6 +164,7 @@ fun Finish(app: AppState) {
         TotalsRow(c.totals, c.bodyweightKg)
         Gap(12.dp)
         OutcomeChips(c)
+        WorkoutRecords(app, c)
 
         Section("Упражнения")
         Txt("Сердечко — очень понравилось, агент чаще вернёт упражнение в план; палец вниз — не понравилось, заменит", T.small, Modifier.padding(bottom = 8.dp))
@@ -215,9 +209,42 @@ fun Finish(app: AppState) {
         PhotoButtons(app, w.id)
 
         Gap(22.dp)
-        Btn("Готово", { leave(Screen.Home) }, Modifier.fillMaxWidth(), big = true)
+        Btn("Готово", { app.leaveFinished(Screen.Home) }, Modifier.fillMaxWidth(), big = true)
         Gap(8.dp)
-        Btn("Все замеры и прогресс", { leave(Screen.Measurements) }, Modifier.fillMaxWidth(), Kind.Ghost)
+        Btn("Все замеры и прогресс", { app.leaveFinished(Screen.Measurements) }, Modifier.fillMaxWidth(), Kind.Ghost)
+    }
+}
+
+@Composable
+private fun WorkoutRecords(app: AppState, c: Comparison) {
+    val sets = c.blocks.flatMap { it.items }.flatMap { item -> item.sets.mapNotNull { s ->
+        s.record?.let { Triple(item, s.fact!!, it) }
+    } }
+    if (sets.isEmpty() && c.volumeRecord == null) return
+    Section("Рекорды")
+    Surface(Modifier.fillMaxWidth(), radius = 14.dp) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            c.volumeRecord?.let { old ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    RecordCup("Рекорд объёма")
+                    Column {
+                        Txt("Рекорд объёма — ${thousands(c.totals.volumeKg.roundToLong())} кг", ts(14.sp, C.Record, FontWeight.SemiBold))
+                        Txt("Было ${thousands(old.volumeKg.roundToLong())} кг · ${old.date.dayMonth()}", T.small)
+                    }
+                }
+            }
+            sets.forEach { (item, fact, old) ->
+                val name = app.exercise(old.exerciseId)?.nameRu ?: item.name ?: "Упражнение"
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    RecordCup("Рекорд: $name")
+                    Column {
+                        Txt("$name — ${short(fact.recordType, SetValues(fact.weight, fact.reps, fact.extraWeight, fact.seconds))}", ts(14.sp, C.Record, FontWeight.SemiBold))
+                        val before = old.set
+                        Txt("Было ${short(before.recordType, SetValues(before.weight, before.reps, before.extraWeight, before.seconds))} · ${old.date.dayMonth()}", T.small)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -228,9 +255,9 @@ private fun FinishItem(app: AppState, item: ItemComparison, tint: Tint, onLike: 
     val grey = out == ItemOutcome.SKIPPED || out == ItemOutcome.REMOVED
     Surface(Modifier.fillMaxWidth(), radius = 12.dp) {
         Row(Modifier.padding(start = 10.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Thumb(app, ex, tint, 40.dp, grey = grey)
+            Thumb(app, ex, tint, 40.dp, Modifier.exerciseLink(app, item.exerciseId, item.name ?: ex?.nameRu), grey = grey)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Txt(item.name ?: ex?.nameRu ?: "Упражнение", ts(14.sp, if (grey) C.Muted else C.Text, FontWeight.SemiBold), maxLines = 2)
+                Txt(item.name ?: ex?.nameRu ?: "Упражнение", ts(14.sp, if (grey) C.Muted else C.Text, FontWeight.SemiBold), Modifier.exerciseLink(app, item.exerciseId, item.name ?: ex?.nameRu), maxLines = 2)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     Ico(out.icon(), 13.dp, out.color())
                     Txt(factLine(item, ex?.recordType ?: RecordType.WEIGHT_REPS), ts(12.sp, C.Muted), Modifier.weight(1f, fill = false), maxLines = 1)

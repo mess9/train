@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -86,10 +88,16 @@ fun DoneSetLine(
     modifier: Modifier = Modifier,
     prev: String? = null,
     done: Boolean = true,
+    record: Boolean = false,
+    recordFresh: Boolean = false,
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
+    // Подпись задаётся и после потери рекорда: браузерный мост иначе удерживает старый aria-label
+    // от удалённого дочернего кубка. Значения остаются доступны для озвучки всей строки.
+    val description = (if (record) "Рекорд подхода $no" else "Подход $no") + ": " + short(type, values) +
+        (rating?.let { ", ${it.label().lowercase()}" } ?: "")
     Row(
-        modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 3.dp),
+        modifier.semantics { contentDescription = description }.fillMaxWidth().padding(horizontal = 4.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -98,8 +106,15 @@ fun DoneSetLine(
         cells(type, values).forEach { (v, u) -> Cell(v, u, done) }
         Box(Modifier.weight(1f))
         trailing()
-        if (rating != null) Txt(rating.label().lowercase(), ts(11.sp, if (done) C.Done else C.Muted))
+        if (record) Ico(Icon.Trophy, 14.dp, C.Record)
+        if (record && recordFresh) Txt("рекорд", ts(11.sp, C.Record, FontWeight.SemiBold))
+        else if (rating != null) Txt(rating.label().lowercase(), ts(11.sp, if (done) C.Done else C.Muted))
         RateDot(rating)
         Box(Modifier.width(6.dp))
     }
+}
+
+@Composable
+fun RecordCup(label: String) {
+    Box(Modifier.semantics { contentDescription = label }) { Ico(Icon.Trophy, 14.dp, C.Record) }
 }
