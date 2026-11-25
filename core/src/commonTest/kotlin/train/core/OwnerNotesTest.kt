@@ -120,4 +120,14 @@ class OwnerNotesTest {
         assertEquals("0.2.0+dev", fullVersion("0.2.0", null))
         assertTrue(Regex("""\d+\.\d+\.\d+""").matches(TRAIN_VERSION))
     }
+
+    @Test
+    fun buildNumberReplacesPatch() {
+        assertEquals("0.3.33", buildVersion("0.3.0", "33"))
+        assertEquals("0.3.0", buildVersion("0.3.0", null), "локально — как в gradle.properties")
+        assertEquals("0.3.0", buildVersion("0.3.0", " "))
+        assertEquals("0.3.0", buildVersion("0.3.0", "dev"), "не номер — не подставляем")
+        assertEquals("0.3.7", buildVersion("0.3.0", "007"))
+        assertEquals("1.0", buildVersion("1.0", "33"), "не три числа — как есть")
+    }
 }

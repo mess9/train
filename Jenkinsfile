@@ -110,7 +110,7 @@ pipeline {
 
         // APK — после деплоя, чтобы его не задерживать, и только если менялся его код (или параметр
         // APK): иначе каждый пуш сервера давал бы релиз без изменений и обновление в Obtainium.
-        // Тег релиза = versionName (0.3.0+<коммит>) — по нему Obtainium сверяет установленную версию
+        // Тег релиза = versionName (0.3.<сборка>+<коммит>) — по нему Obtainium сверяет установленную версию
         stage('APK') {
             when {
                 anyOf {
@@ -135,11 +135,14 @@ pipeline {
                         [ "$(git rev-parse --is-shallow-repository)" = false ] || git fetch --unshallow
                         CODE=$(git rev-list --count HEAD)
                         COMMIT=$(git rev-parse --short=7 HEAD)
-                        VERSION="$(sed -n 's/^version=//p' gradle.properties)+$COMMIT"
+                        # Последнее число версии — номер сборки: 0.3.0 → 0.3.33, как у сервера (ADR 0009)
+                        BASE=$(sed -n 's/^version=//p' gradle.properties)
+                        VERSION="${BASE%.*}.$BUILD_NUMBER+$COMMIT"
 
                         rm -rf build/apk
                         docker build --target apk-out --output type=local,dest=build/apk \
                           --build-arg TRAIN_COMMIT="$COMMIT" --build-arg TRAIN_VERSION_CODE="$CODE" \
+                          --build-arg TRAIN_BUILD="$BUILD_NUMBER" \
                           --secret id=keystore,src="$KEYSTORE" --secret id=storepass,env=STORE_PASS .
                         APK=build/apk/android-release.apk
                         [ -f "$APK" ] || { echo "Нет подписанного APK:"; ls -l build/apk; exit 1; }

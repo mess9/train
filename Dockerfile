@@ -52,9 +52,11 @@ COPY cli cli
 COPY app app
 COPY server server
 COPY android android
-# versionCode (число коммитов) и коммит — от Jenkins: .git в образ не копируется
+# versionCode (число коммитов), коммит и номер сборки (последнее число versionName) — от Jenkins:
+# .git в образ не копируется
 ARG TRAIN_COMMIT=
 ARG TRAIN_VERSION_CODE=
+ARG TRAIN_BUILD=
 # Ключ и пароль — секретами BuildKit: в слои и историю образа не попадают
 RUN --mount=type=cache,target=/root/.gradle \
     --mount=type=secret,id=keystore \
@@ -69,7 +71,7 @@ COPY --from=apk /src/android/build/outputs/apk/release/ /
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 # Коммит и номер сборки — только в последней стадии: стадии сборки и тестов остаются в кэше.
-# /api/info отдаёт версию 0.2.0+<коммит> (ADR 0009)
+# /api/info отдаёт версию 0.3.<сборка>+<коммит> (ADR 0009)
 ARG TRAIN_COMMIT=dev
 ARG TRAIN_BUILD=
 ENV TRAIN_COMMIT=$TRAIN_COMMIT TRAIN_BUILD=$TRAIN_BUILD

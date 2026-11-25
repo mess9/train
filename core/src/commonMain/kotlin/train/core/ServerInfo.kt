@@ -37,7 +37,8 @@ val TrainJson = Json {
 }
 
 /**
- * [version] — semver с коммитом сборки, `0.2.0+5cdae85`; вне сборки образа — `0.2.0+dev`.
+ * [version] — semver с коммитом сборки, `0.3.33+5cdae85` (последнее число — номер сборки
+ * Jenkins); вне сборки образа — `0.3.0+dev`.
  * [commit] — короткий хеш коммита, [build] — номер сборки Jenkins, если есть (ADR 0009).
  * [app] — хеш сборки PWA, которую сервер отдаёт сейчас: приложение сравнивает его со своим и
  * видит, что пора перезапуститься. [dataset] — подключён ли датасет упражнений (docs/dataset.md).
@@ -58,6 +59,16 @@ data class ServerInfo(
  */
 @Serializable
 data class DatasetInfo(val exercises: Int, val media: Boolean)
+
+/**
+ * Версия сборки Jenkins: последнее число semver — номер сборки, `0.3.0` и `33` → `0.3.33`. Без
+ * номера (локально, тесты) или с нечисловым — версия как есть (ADR 0009).
+ */
+fun buildVersion(version: String = TRAIN_VERSION, build: String?): String {
+    val n = build?.trim()?.takeIf { it.isNotEmpty() && it.all(Char::isDigit) } ?: return version
+    val parts = version.split('.')
+    return if (parts.size == 3) "${parts[0]}.${parts[1]}.${n.trimStart('0').ifEmpty { "0" }}" else version
+}
 
 /** `0.2.0+5cdae85`: semver и коммит как метаданные сборки. Без коммита — `0.2.0+dev`. */
 fun fullVersion(version: String = TRAIN_VERSION, commit: String?): String = "$version+${commit?.takeIf { it.isNotBlank() } ?: "dev"}"

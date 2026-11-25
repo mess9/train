@@ -14,7 +14,7 @@ fun secret(name: String): String? =
 val keystore = secret("store")?.let(::file)?.takeIf { it.exists() }
 
 // Версия: semver проекта + коммит (ADR 0009); versionCode растёт с каждым коммитом — обновление
-// встаёт поверх только с большим кодом. В Docker `.git` нет — оба числа передаёт Jenkins окружением
+// встаёт поверх только с большим кодом. В Docker `.git` нет — числа передаёт Jenkins окружением
 fun git(vararg args: String): String? = runCatching {
     providers.exec { commandLine(listOf("git") + args) }.standardOutput.asText.get().trim()
 }.getOrNull()?.takeIf { it.isNotEmpty() }
@@ -23,6 +23,13 @@ fun env(name: String): String? = System.getenv(name)?.takeIf { it.isNotBlank() }
 
 val commits = (env("TRAIN_VERSION_CODE") ?: git("rev-list", "--count", "HEAD"))?.toIntOrNull() ?: 1
 val commit = env("TRAIN_COMMIT") ?: git("rev-parse", "--short=7", "HEAD")
+
+// Номер сборки Jenkins — последнее число версии: 0.3.0 → 0.3.33, как `buildVersion` в core
+val semver = project.version.toString().let { v ->
+    val build = env("TRAIN_BUILD")?.takeIf { b -> b.all(Char::isDigit) }?.toInt()
+    val parts = v.split('.')
+    if (build != null && parts.size == 3) "${parts[0]}.${parts[1]}.$build" else v
+}
 
 android {
     namespace = "train.apk"
@@ -33,7 +40,7 @@ android {
         minSdk = 28
         targetSdk = 36
         versionCode = commits
-        versionName = listOfNotNull(project.version.toString(), commit).joinToString("+")
+        versionName = listOfNotNull(semver, commit).joinToString("+")
         manifestPlaceholders["label"] = "Тренировки"
     }
 
