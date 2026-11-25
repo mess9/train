@@ -94,6 +94,20 @@ expect fun httpClient(): HttpClient
 /** Картинка из JPEG/PNG, уменьшенная до [max] px по длинной стороне: полный снимок в памяти не держим. */
 expect fun decodeImage(bytes: ByteArray, max: Int = Int.MAX_VALUE): ImageBitmap
 
+/** Сон, пульс, шаги из Health Connect → сервер (ADR 0015): есть только у APK. */
+expect val healthSupported: Boolean
+
+/** Для настроек: [lines] — доступ и итог последней отправки, [missing] — не весь доступ выдан. */
+data class HealthState(val lines: List<String>, val missing: Boolean)
+
+expect suspend fun healthState(): HealthState
+
+/** Спросить доступ к Health Connect. Только из нажатия. */
+expect fun healthAsk()
+
+/** Отправить сейчас; [afterWorkout] — и ещё раз позже: браслет отдаёт пульс тренировки не сразу. */
+expect fun healthSend(afterWorkout: Boolean = false)
+
 /** Сеть появилась. */
 expect fun onOnline(action: () -> Unit)
 

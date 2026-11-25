@@ -7,6 +7,25 @@
     <!-- Отклик на нажатия и сигнал конца отдыха -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Сон, пульс, шаги из Health Connect → сервер (ADR 0015). Только чтение: в Health Connect
+         приложение ничего не пишет -->
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_RESTING_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY" />
+    <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
+    <uses-permission android:name="android.permission.health.READ_RESPIRATORY_RATE" />
+    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+    <!-- Отправка в фоне без открытого приложения и история старше 30 дней -->
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
+
+    <!-- Health Connect отдельным приложением — на Android 13 и раньше -->
+    <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+    </queries>
+
     <!-- Ключ API, токен Cloudflare и очередь — в файлах приложения: в резервную копию не попадают -->
     <application
         android:name=".TrainApplication"
@@ -34,6 +53,28 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Зачем приложению данные Health Connect: Android 13 и раньше -->
+        <activity
+            android:name=".HealthRationaleActivity"
+            android:exported="true"
+            android:label="Сон и пульс">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+
+        <!-- То же на Android 14+ -->
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE"
+            android:targetActivity=".HealthRationaleActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- Снимок с камеры: камера пишет его в кэш приложения по этому адресу (AndroidHost.openCamera) -->
         <provider

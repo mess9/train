@@ -133,6 +133,15 @@ actual fun decodeImage(bytes: ByteArray, max: Int): ImageBitmap {
     return surface.makeImageSnapshot().toComposeImageBitmap().also { img.close() }
 }
 
+// Health Connect — только у APK: браузеру до него не достать
+actual val healthSupported: Boolean = false
+
+actual suspend fun healthState(): HealthState = HealthState(emptyList(), missing = false)
+
+actual fun healthAsk() {}
+
+actual fun healthSend(afterWorkout: Boolean) {}
+
 actual fun onOnline(action: () -> Unit) = window.addEventListener("online") { action() }
 
 actual fun onVisible(action: () -> Unit) = document.addEventListener("visibilitychange") { if (pageVisible()) action() }

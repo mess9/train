@@ -93,6 +93,7 @@ fun Home(app: AppState) {
                             Btn("Закрыть", {
                                 app.act { finish(end) }
                                 wake(false)
+                                healthSend(afterWorkout = true)
                                 app.go(Screen.Finish)
                             }, Modifier.weight(1f))
                             Btn("Продолжить", { forgottenDismissed = true }, Modifier.weight(1f), Kind.Ghost)

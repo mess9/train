@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import okhttp3.Cache
+import okhttp3.Interceptor
 import train.core.Storage
 import java.io.File
 import java.io.FileNotFoundException
@@ -203,6 +204,17 @@ actual val deviceKind: String = train.core.DEVICE_APK
 /** Картинки датасета не меняются: как `media`-кэш service worker у PWA, держим их год, и офлайн тоже. */
 private const val MEDIA_CACHE = "private, max-age=31536000, immutable"
 
+/** Сервисный токен Cloudflare Access из настроек — на каждый запрос, поменять можно на ходу. */
+internal val accessInterceptor = Interceptor { chain ->
+    val id = DeviceStorage.read(CF_ID_KEY)
+    val secret = DeviceStorage.read(CF_SECRET_KEY)
+    val req = chain.request()
+    chain.proceed(
+        if (id.isNullOrBlank() || secret.isNullOrBlank()) req
+        else req.newBuilder().header("CF-Access-Client-Id", id).header("CF-Access-Client-Secret", secret).build(),
+    )
+}
+
 actual fun httpClient(): HttpClient = HttpClient(OkHttp) {
     // Редирект — вход Cloudflare Access: OkHttp по нему не идёт, ответ разбирает клиент
     followRedirects = false
@@ -212,16 +224,7 @@ actual fun httpClient(): HttpClient = HttpClient(OkHttp) {
             followSslRedirects(false)
             cache(Cache(File(AndroidHost.context.cacheDir, "http"), 200L * 1024 * 1024))
         }
-        // Сервисный токен Cloudflare Access из настроек — на каждый запрос, поменять можно на ходу
-        addInterceptor { chain ->
-            val id = DeviceStorage.read(CF_ID_KEY)
-            val secret = DeviceStorage.read(CF_SECRET_KEY)
-            val req = chain.request()
-            chain.proceed(
-                if (id.isNullOrBlank() || secret.isNullOrBlank()) req
-                else req.newBuilder().header("CF-Access-Client-Id", id).header("CF-Access-Client-Secret", secret).build(),
-            )
-        }
+        addInterceptor(accessInterceptor)
         // Cloudflare переписывает Cache-Control на 4 часа (см. sw.js) — возвращаем серверный
         addNetworkInterceptor { chain ->
             val r = chain.proceed(chain.request())

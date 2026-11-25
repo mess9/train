@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.core.content.FileProvider
+import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -50,12 +51,14 @@ object AndroidHost {
     internal var wakeOn = false
 
     private var gallery: (() -> Unit)? = null
+    private var health: ((Set<String>) -> Unit)? = null
     private var camera: ((Uri) -> Unit)? = null
 
     fun init(context: Context) {
         this.context = context.applicationContext
         build = runCatching { this.context.packageManager.getPackageInfo(this.context.packageName, 0).versionName }.getOrNull() ?: "dev"
         DeviceStorage.dir = File(this.context.filesDir, "store").apply { mkdirs() }
+        healthSchedule(this.context)
         // Как событие `online` браузера: только возврат сети после потери, не каждая смена сети
         val cm = this.context.getSystemService(ConnectivityManager::class.java)
         cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
@@ -106,6 +109,15 @@ object AndroidHost {
             if (ok && u != null) Photo.use(u, fromCamera = true) else Photo.cancel()
         }
         camera = { uri -> shot = uri; take.launch(uri) }
+        // Доступ к Health Connect: выдали — сразу отправить, первая выгрузка — за два года
+        val perms = a.registerForActivityResult(PermissionController.createRequestPermissionResultContract()) { granted ->
+            if (granted.isNotEmpty()) healthSend()
+        }
+        health = { perms.launch(it) }
+    }
+
+    internal fun askHealth(permissions: Set<String>) {
+        health?.invoke(permissions)
     }
 
     internal fun visibleNow(): Boolean = activity?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true

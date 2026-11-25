@@ -40,6 +40,9 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             // ComponentActivity: выбор фото, «назад», жизненный цикл (AndroidHost)
             implementation(libs.activity)
+            // Сон и пульс с браслета → сервер (ADR 0015): чтение Health Connect и фон
+            implementation(libs.health.connect)
+            implementation(libs.work.runtime)
         }
         wasmJsMain.dependencies {
             implementation(libs.kotlinx.browser)

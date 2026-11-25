@@ -167,6 +167,8 @@ fun WorkoutScreen(app: AppState) {
         app.act { finish(Clock.System.now()) }
         app.rest = null
         wake(false)
+        // Пульс тренировки — к разбору: браслет уже отдал его телефону или отдаст скоро
+        healthSend(afterWorkout = true)
         app.replace(Screen.Finish)
     }
 

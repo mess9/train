@@ -11,8 +11,9 @@
 - `.claude/skills/gym/` — правила агента-тренера, в клоне подхватывается сам. `SKILL.md` — план и
   разбор, темы — рядом: `catalog.md` (упражнения, картинки), `body.md` (замеры, фото), `admin.md`.
   Меняешь API планов, тренировок, справочника или замеров — сверь нужный файл.
-- `health-sync/` — Android-приложение на телефон: сон, пульс, шаги из Health Connect на сервер (ADR 0015);
-  ночи и дни считает `core/.../Health.kt`, агенту — `gym health days` и раздел в `brief`.
+- Сон, пульс, шаги из Health Connect на сервер шлёт APK (ADR 0015): `app/.../Health.android.kt`,
+  экран — «Настройки» → «Сон и пульс». Ночи и дни считает `core/.../Health.kt`, агенту —
+  `gym health days` и раздел в `brief`.
 - `docs/dataset.md` — датасет упражнений (картинки, шаги): где взять, формат; в репо его нет.
 - UI-примитивы — `app/.../Theme.kt` (`Page`, `Surface`, `Btn`, `Txt`, `T`, `C`, `tap`; `haptic` — в `Platform.kt`).
 - `app` — общий код PWA и будущего APK (`docs/PLAN-android.md`): экраны и `AppState` в
@@ -67,16 +68,19 @@ skillshare, так что правка в репо = правка skill).
   Исключение — `.claude/skills/gym/SKILL.md`: он включён через `.dockerignore` и копируется только
   в стадию `test`, потому что CLI-тест проверяет JSON-пример плана из skill. Правка примера
   должна перезапускать этот тест и в Docker.
-- **Android**: `./gradlew :health-sync:assembleDebug` → `health-sync/build/outputs/apk/debug/`. Он и `android`
-  включаются, только если есть `ANDROID_HOME` или `local.properties`. `health-sync` Jenkins не
-  собирает, `android` собирает только стадия `apk` в `Dockerfile` (там своё SDK). AGP 9 (Kotlin встроенный) объявлен в корне рядом с
-  Kotlin-плагином: из одного `health-sync/build.gradle.kts` — «Could not create an instance of
-  KotlinAndroidTarget». Quarkus — только в `server/build.gradle.kts`: в корне он поднимает JAXB
+- **Android**: модуль `android` включается, только если есть `ANDROID_HOME` или
+  `local.properties`; в Jenkins его собирает только стадия `apk` в `Dockerfile` (там своё SDK).
+  AGP 9 (Kotlin встроенный) объявлен в корне рядом с Kotlin-плагином: из одного
+  `build.gradle.kts` модуля — «Could not create an instance of KotlinAndroidTarget». Quarkus — только в `server/build.gradle.kts`: в корне он поднимает JAXB
   до 4, и AGP падает на `javax/xml/bind/annotation/XmlSchema`.
 - **APK**: `./gradlew :android:assembleRelease` → `android/build/outputs/apk/release/`. Подпись —
   `train.signing.store`, `storePassword`, `keyAlias` (по умолчанию `train`), `keyPassword` в
   `~/.gradle/gradle.properties`; без них APK неподписанный и не ставится. Плавность мерить только
   на release. `assembleDebug` — `train.app.debug`, ставится рядом с боевой.
+- Health Connect выдаёт доступ, только если в манифесте есть экран «зачем данные»
+  (`HealthRationaleActivity` и `activity-alias` для Android 14+). Проверка на эмуляторе
+  `Medium_Phone_API_37.0`: «Настройки» → «Дать доступ» → два диалога, затем в
+  `adb logcat | grep WM-` — `Worker result SUCCESS … HealthWorker`. Данных Health Connect там нет: «отправлено 0».
 - **APK из Jenkins**: стадия `APK` идёт после деплоя и только при изменениях в коде APK (или с
   параметром `APK`). Она собирает `docker build --target apk-out --output type=local,dest=build/apk`
   и выкладывает релиз в Gitea с тегом versionName, оттуда его берёт Obtainium. Локально та же

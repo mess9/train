@@ -208,7 +208,7 @@ private fun Connect(app: AppState) {
 }
 
 /**
- * Сервисный токен Cloudflare Access — у APK вместо входа через браузер (как у `health-sync` и CLI).
+ * Сервисный токен Cloudflare Access — у APK вместо входа через браузер (как у CLI).
  * Возвращает введённое: пара Client-Id и Secret; сохраняет вызывающий.
  */
 @Composable
@@ -286,6 +286,8 @@ private fun Settings(app: AppState) {
 
         TimerPresets(app)
 
+        if (healthSupported) HealthSection()
+
         Section("Версия")
         Surface(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -333,6 +335,41 @@ private fun Settings(app: AppState) {
         Section("Проверка")
         CheckRow("Пауза отправки", "Отметки копятся в очереди и не уходят на сервер", app.paused) { app.pauseSending(!app.paused) }
     }
+}
+
+/**
+ * Health Connect → сервер (ADR 0015): доступ, итог последней отправки и «Отправить сейчас».
+ * Итог пишет фоновая задача — перечитываем, пока экран открыт.
+ */
+@Composable
+private fun HealthSection() {
+    var state by remember { mutableStateOf<HealthState?>(null) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            state = healthState()
+            delay(2000)
+        }
+    }
+    Section("Сон и пульс")
+    Txt(
+        "Из Health Connect на сервер — для разбора тренировок: сон, шаги, пульс. В фоне раз в 8 часов и после " +
+            "тренировки. Пульс тренировки будет, если запустить её на браслете.",
+        T.meta,
+    )
+    Gap(10.dp)
+    state?.let { st ->
+        Surface(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                st.lines.forEach { Txt(it, T.meta) }
+            }
+        }
+        Gap(10.dp)
+        if (st.missing) {
+            Btn("Дать доступ", ::healthAsk, Modifier.fillMaxWidth())
+            Gap(8.dp)
+        }
+    }
+    Btn("Отправить сейчас", { healthSend() }, Modifier.fillMaxWidth(), Kind.Ghost)
 }
 
 /**
