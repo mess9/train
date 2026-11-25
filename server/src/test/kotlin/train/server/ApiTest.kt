@@ -10,6 +10,10 @@ import train.core.ApiError
 import train.core.BODYWEIGHT
 import train.core.Comparison
 import train.core.Exercise
+import train.core.HealthRecord
+import train.core.HealthType
+import train.core.HealthUpload
+import train.core.HealthUploaded
 import train.core.Me
 import train.core.Measurement
 import train.core.Plan
@@ -80,7 +84,16 @@ class ApiTest {
         assertEquals(2, detail.sets.size)
         assertEquals("тяжело", detail.workout.comment)
 
+        assertNull(api.get<Comparison>("/api/workouts/${w.id}/compare").heartRate)
+        // Пульс браслета за время тренировки — в сравнении; точки до старта не входят
+        val secs = (0..7200 step 30).toList()
+        api.post<HealthUpload, HealthUploaded>(
+            "/api/health/records",
+            HealthUpload(listOf(HealthRecord("hr", HealthType.HEART_RATE, "com.xiaomi.wearable", now - 2.hours, now, hrSec = secs, hrBpm = secs.map { if (it < 3600) 70 else 120 }))),
+        )
         val c = api.get<Comparison>("/api/workouts/${w.id}/compare")
+        assertEquals(120, c.heartRate!!.avgBpm)
+        assertTrue(c.heartRate!!.coveredMin in 59..60, "${c.heartRate}")
         assertEquals(2, c.totals.setsDone)
         assertEquals(40.0 * 10 + 40.0 * 8, c.totals.volumeKg)
         assertEquals(80.0, c.bodyweightKg)

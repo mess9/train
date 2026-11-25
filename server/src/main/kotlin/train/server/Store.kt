@@ -13,6 +13,8 @@ import kotlinx.serialization.builtins.serializer
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import train.core.BODYWEIGHT
 import train.core.Exercise
+import train.core.HealthRecord
+import train.core.HealthType
 import train.core.Measurement
 import train.core.Plan
 import train.core.PlanBody
@@ -28,6 +30,7 @@ import train.core.bodyweightFor
 import train.core.planStatus
 import java.util.Optional
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
@@ -116,6 +119,13 @@ class Store(private val db: Db, private val days: Days) {
         ) { it.measurement() }
         return bodyweightFor(w, before + measurementsOf(userId, w.id))
     }
+
+    /** Записи пульса, задевающие отрезок: запись браслета начинается до тренировки и длится дольше суток вряд ли. */
+    fun heartRate(userId: Uuid, from: Instant, to: Instant): List<HealthRecord> = db.list(
+        "select data from health_record where user_id = ? and type = ? and start_at >= ? and start_at <= ? " +
+            "and coalesce(end_at, start_at) >= ? order by start_at",
+        userId, HealthType.HEART_RATE.name, from - 1.days, to, from,
+    ) { it.json("data", HealthRecord.serializer()) }
 
     fun profile(userId: Uuid): Profile =
         db.one("select profile from app_user where id = ?", userId) { it.json("profile", Profile.serializer()) } ?: Profile()

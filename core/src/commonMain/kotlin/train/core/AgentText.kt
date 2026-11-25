@@ -13,7 +13,8 @@ const val AGENT_TEXT_LEGEND = """Оценки: ↑ легко, ✓ норма, �
 Подходы с одной нагрузкой — группой: «12кг: 10✓ 10✕ · 14кг: 8✓»; вес — одного снаряда, +5кг — доп. вес.
 Цель: «3× 12кг 8–10 r3» — три подхода, 8–10 повторов, запас 3. Σ — сумма повторов или секунд.
 Тренд лучшего подхода к прошлой тренировке: ▲ рост, = так же, ▼ спад.
-Отметки владельца у упражнения: ♥ очень понравилось, 👎 не понравилось."""
+Отметки владельца у упражнения: ♥ очень понравилось, 👎 не понравилось.
+Пульс по браслету: у тренировки — средний и максимальный, у блока — «пульс 128/156» (ср/макс)."""
 
 internal fun num(d: Double): String {
     val r = round(d * 100) / 100
@@ -143,6 +144,7 @@ fun Comparison.toText(names: (Uuid) -> String? = { null }, planNotes: Boolean = 
             t.timeUnderLoadSec.takeIf { it > 0 }?.let { "под нагрузкой ${it}с" },
         ).joinToString(" · "),
     )
+    heartRate?.let { appendLine("пульс ср ${it.avgBpm} · макс ${it.maxBpm} · по браслету ${it.coveredMin} мин") }
     if (measurements.isNotEmpty()) appendLine("замеры: " + measurements.joinToString(", ") { "${it.type} ${num(it.value)} ${it.unit}" })
     volumeRecord?.let { appendLine("рекорд объёма: ${num(round(t.volumeKg))} кг, было ${num(round(it.volumeKg))} кг · ${it.date.dmy()}") }
     comment?.takeIf { it.isNotBlank() }?.let { appendLine("комментарий: ${quote(it)}") }
@@ -159,7 +161,8 @@ fun Comparison.toText(names: (Uuid) -> String? = { null }, planNotes: Boolean = 
             val perPass = if (passes > 1) " (${m / passes}/проход)" else ""
             " · ${minutes(startedAt, blockStart)}–${minutes(startedAt, it)} мин$perPass"
         } ?: ""
-        appendLine("[${ROLE.getValue(b.role)}] ${b.title ?: ""} · $passes прох.$span".replace("]  ·", "] ·"))
+        val hr = b.heartRate?.let { " · пульс ${it.avgBpm}/${it.maxBpm}" } ?: ""
+        appendLine("[${ROLE.getValue(b.role)}] ${b.title ?: ""} · $passes прох.$span$hr".replace("]  ·", "] ·"))
         end?.let { blockStart = it }
         for (item in b.items) appendItem(item, prev[item.exerciseId], names, planNotes)
     }

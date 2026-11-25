@@ -3,6 +3,8 @@ package train.core
 import kotlinx.datetime.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 
 class AgentTextTest {
@@ -70,6 +72,38 @@ class AgentTextTest {
             """.trimIndent(),
             text,
         )
+    }
+
+    /** Пульс каждые 10 с с [fromMin] по [toMin] минуту от старта тренировки; [bpm] — от секунды от старта. */
+    private fun hr(id: String, source: String, fromMin: Int, toMin: Int, bpm: (Int) -> Int): HealthRecord {
+        val secs = (0..(toMin - fromMin) * 60 step 10).toList()
+        return HealthRecord(id, HealthType.HEART_RATE, source, T0 + fromMin.minutes, T0 + toMin.minutes,
+            hrSec = secs, hrBpm = secs.map { bpm(fromMin * 60 + it) })
+    }
+
+    @Test
+    fun heartRateOfWorkoutAndBlocks() {
+        val warm = exercise("Скакалка", type = RecordType.TIME)
+        val press = exercise("Жим гантелей", implements = 2)
+        val w0 = item(warm, TargetSet(seconds = 60))
+        val a = item(press, TargetSet(weight = 10.0, repsMax = 10))
+        val w = workout(block(w0, role = BlockRole.WARMUP), block(a)).copy(finishedAt = T0 + 40.minutes, date = LocalDate(2026, 11, 3))
+        val facts = listOf(w.fact(w0, 1, seconds = 60, minute = 5), w.fact(a, 1, weight = 10.0, reps = 10, minute = 22))
+        // Браслет запущен на 1-й минуте, остановлен на 30-й: разминка 100, основной 140 и пик 165 на 15-й
+        val band = hr("b", "com.xiaomi.wearable", 1, 30) { s -> if (s <= 300) 100 else if (s == 900) 165 else 140 }
+        // Другой источник с горсткой точек не смешивается, пульс до тренировки не входит
+        val other = hr("o", "other.app", 10, 11) { 200 }
+        val before = HealthRecord("p", HealthType.HEART_RATE, "com.xiaomi.wearable", T0 - 120.minutes, T0 - 60.minutes,
+            hrSec = (0..600 step 10).toList(), hrBpm = List(61) { 60 })
+        val c = compare(w, facts, listOf(warm, press).associateBy { it.id }, health = listOf(band, other, before))
+        assertEquals(WorkoutHeartRate(134, 165, 175, 29, "com.xiaomi.wearable"), c.heartRate)
+        val text = c.toText()
+        assertTrue("пульс ср 134 · макс 165 · по браслету 29 мин" in text, text)
+        assertTrue("[разминка] · 1 прох. · 0–5 мин · пульс 100/100" in text, text)
+        assertTrue("[основной] · 1 прох. · 5–22 мин · пульс 140/165" in text, text)
+        // Браслет не запускали — строк пульса нет
+        assertNull(compare(w, facts, emptyMap(), health = listOf(before)).heartRate)
+        assertTrue("пульс" !in compare(w, facts, emptyMap()).toText())
     }
 
     @Test

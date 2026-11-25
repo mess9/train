@@ -268,6 +268,50 @@ fun sleepNights(records: List<HealthRecord>, zone: TimeZone): Map<LocalDate, Sle
     }.toMap()
 }
 
+/** Точки пульса всех записей пульса — по времени. */
+private fun hrPoints(records: List<HealthRecord>): List<Pair<Instant, Int>> =
+    records.filter { it.type == HealthType.HEART_RATE }.flatMap { r ->
+        val sec = r.hrSec.orEmpty()
+        val bpm = r.hrBpm.orEmpty()
+        sec.indices.filter { it < bpm.size }.map { r.start + sec[it].seconds to bpm[it] }
+    }.sortedBy { it.first }
+
+/** Пульс за отрезок: средний и максимальный, уд/мин. */
+@Serializable
+data class HeartRateSpan(val avgBpm: Int, val maxBpm: Int, val points: Int)
+
+/**
+ * Пульс тренировки по браслету. [coveredMin] — от первой до последней точки внутри тренировки:
+ * тренировку на браслете запустили позже или остановили раньше — меньше её длительности.
+ */
+@Serializable
+data class WorkoutHeartRate(val avgBpm: Int, val maxBpm: Int, val points: Int, val coveredMin: Int, val source: String)
+
+/** Меньше точек за тренировку или блок — пульс не считаем: тренировку на браслете не запускали. */
+const val WORKOUT_HR_MIN_POINTS = 10
+
+/** Точки пульса тренировки: один источник — у кого точек в окне больше, два браслета не складываем. */
+class HeartRateTrack(val source: String, private val points: List<Pair<Instant, Int>>) {
+    fun span(from: Instant, to: Instant): HeartRateSpan? =
+        points.filter { it.first >= from && it.first <= to }.map { it.second }
+            .takeIf { it.size >= WORKOUT_HR_MIN_POINTS }
+            ?.let { HeartRateSpan(kotlin.math.round(it.average()).toInt(), it.max(), it.size) }
+
+    fun summary(from: Instant, to: Instant): WorkoutHeartRate? {
+        val inside = points.filter { it.first >= from && it.first <= to }
+        val s = span(from, to) ?: return null
+        return WorkoutHeartRate(s.avgBpm, s.maxBpm, s.points, (inside.last().first - inside.first().first).inWholeMinutes.toInt(), source)
+    }
+
+    companion object {
+        fun of(records: List<HealthRecord>, from: Instant, to: Instant): HeartRateTrack? =
+            records.filter { it.type == HealthType.HEART_RATE }.groupBy { it.source }
+                .map { (source, rs) -> HeartRateTrack(source, hrPoints(rs).filter { it.first >= from && it.first <= to }) }
+                .maxByOrNull { it.points.size }
+                ?.takeIf { it.points.size >= WORKOUT_HR_MIN_POINTS }
+    }
+}
+
 private fun median(xs: List<Int>): Int = xs.sorted().let { s -> if (s.size % 2 == 1) s[s.size / 2] else (s[s.size / 2 - 1] + s[s.size / 2]) / 2 }
 
 private fun round1(d: Double) = kotlin.math.round(d * 10) / 10
@@ -286,12 +330,7 @@ fun healthDays(
     val rs = records.filter { r -> exclusions.none { it.covers(r, zone) } }
     val nights = sleepNights(rs, zone)
     val byDate = rs.groupBy { it.date(zone) }
-    // Точки пульса всех записей — по времени
-    val hr = rs.filter { it.type == HealthType.HEART_RATE }.flatMap { r ->
-        val sec = r.hrSec.orEmpty()
-        val bpm = r.hrBpm.orEmpty()
-        sec.indices.filter { it < bpm.size }.map { r.start + sec[it].seconds to bpm[it] }
-    }.sortedBy { it.first }
+    val hr = hrPoints(rs)
     val hrTimes = hr.map { it.first }
     fun hrIn(a: Instant, b: Instant): List<Int> {
         val i = hrTimes.binarySearch(a).let { if (it < 0) -it - 1 else it }

@@ -59,7 +59,14 @@ data class ItemComparison(
 )
 
 @Serializable
-data class BlockComparison(val blockId: Uuid, val role: BlockRole, val title: String? = null, val items: List<ItemComparison>)
+data class BlockComparison(
+    val blockId: Uuid,
+    val role: BlockRole,
+    val title: String? = null,
+    val items: List<ItemComparison>,
+    /** Пульс блока: от конца прошлого блока до последнего подхода этого. Отметки подходов — приблизительно, по блокам не точнее. */
+    val heartRate: HeartRateSpan? = null,
+)
 
 @Serializable
 data class Totals(
@@ -113,6 +120,8 @@ data class Comparison(
     val unplaced: List<DoneSet> = emptyList(),
     /** Прежний лучший объём, если текущая тренировка его превысила. */
     val volumeRecord: VolumeBest? = null,
+    /** Пульс по браслету (ADR 0015); `null` — тренировку на браслете не запускали или данные не пришли. */
+    val heartRate: WorkoutHeartRate? = null,
 )
 
 /**
@@ -123,6 +132,7 @@ data class Comparison(
  * @param previous прошлые факты этих упражнений из других тренировок
  * @param bodyweight вес тела для объёма — [bodyweightFor]
  * @param measurements замеры, привязанные к тренировке
+ * @param health записи пульса за время тренировки
  */
 fun compare(
     workout: Workout,
@@ -133,6 +143,7 @@ fun compare(
     heightCm: Double? = null,
     measurements: List<Measurement> = emptyList(),
     best: Records = Records(),
+    health: List<HealthRecord> = emptyList(),
 ): Comparison {
     val done = facts.filter { it.workoutId == workout.id && it.done && !it.deleted }
     val doneByItem = done.groupBy { it.itemId }
@@ -163,6 +174,12 @@ fun compare(
     val placed = workout.layout.blocks.flatMap { it.items }.map { it.id }.toSet()
     val all = blocks.flatMap { it.items }.flatMap { it.sets }
     val end = workout.finishedAt ?: done.mapNotNull { it.doneAt }.maxOrNull()
+    val track = end?.let { HeartRateTrack.of(health, workout.startedAt, it) }
+    var blockStart = workout.startedAt
+    val withHr = if (track == null) blocks else blocks.map { b ->
+        val last = b.items.flatMap { it.sets }.mapNotNull { it.fact?.doneAt }.maxOrNull() ?: return@map b
+        b.copy(heartRate = track.span(blockStart, last)).also { blockStart = last }
+    }
     val duration = end?.let { (it - workout.startedAt).inWholeSeconds }
     val volumes = done.filter { it.hasVolume(exercises[it.exerciseId]) }.map { it.volume(exercises[it.exerciseId], bodyweight) }
     val volume = volumes.sumOf { it ?: 0.0 }
@@ -199,10 +216,11 @@ fun compare(
             timeUnderLoadSec = done.sumOf { it.timeUnderLoad ?: 0 },
             paceSecPerKg = if (duration != null && volume > 0) duration / volume else null,
         ),
-        blocks = blocks,
+        blocks = withHr,
         previous = history,
         unplaced = done.filter { it.itemId !in placed }.map { it.toDone(null) },
         volumeRecord = volumeRecord(volume, best),
+        heartRate = end?.let { track?.summary(workout.startedAt, it) },
     )
 }
 

@@ -233,6 +233,8 @@ class WorkoutResource(
             heightCm = store.profile(user.id).heightCm,
             measurements = store.measurementsOf(user.id, w.id),
             best = store.records(user.id, exerciseIds.toSet(), exclude = w.id, before = w.startedAt),
+            health = (w.finishedAt ?: facts.mapNotNull { it.doneAt }.maxOrNull())
+                ?.let { store.heartRate(user.id, w.startedAt, it) }.orEmpty(),
         )
     }
 }
