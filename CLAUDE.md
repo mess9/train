@@ -45,6 +45,11 @@ skillshare, так что правка в репо = правка skill).
 - Python в консоли: `PYTHONIOENCODING=utf-8`, иначе cp1251 падает на эмодзи из импорта.
   ID из `$(python …)` приходят с `\r` — цикл по ID вести внутри Python (`gym.bat` через
   `subprocess`).
+- Исправить подход или убрать тренировку CLI не умеет — прямой `PUT` на прод:
+  `/api/workouts/{id}/sets/{setId}` или `/api/workouts/{id}` с телом `{data, baseRev: <rev записи>,
+  opId: <новый uuid>}`, заголовок `X-Api-Key`; `data` — объект из `gym workout get` без `rev`. В
+  корзину — `deleted: true` в тренировке; `DELETE` стирает насовсем. Python `urllib` без своего
+  `User-Agent` прод отвергает 403 (curl проходит).
 - `java.exe` на Windows отдаёт `main` аргументы в cp1251: ✓ × → ♥ стали бы `?` без ошибки. `gym`
   берёт исходные через `GetCommandLineW` (`cli/.../WinArgs.kt`); не вышло — предупреждение в stderr
   про каждый аргумент с «?». Видишь его — значки в тексте словами или через JSON-файл.
@@ -87,6 +92,10 @@ skillshare, так что правка в репо = правка skill).
   команда без `--secret` даёт `android-release-unsigned.apk`. В образе нет `.git`, поэтому
   `versionCode` и коммит передаются через `--build-arg TRAIN_VERSION_CODE/TRAIN_COMMIT`, иначе
   versionCode 1 и APK не встанет поверх установленного.
+- Jenkins упал на `FROM eclipse-temurin` («failed to fetch anonymous token … network is
+  unreachable», IPv6-адрес `auth.docker.io`) — это сеть хоста, а не код. Повторять через «Build
+  with Parameters» с `APK`: `changeset` берёт только коммиты с прошлой сборки, даже упавшей, и
+  без галки повтор задеплоит сервер, а APK пропустит.
 - APK на эмуляторе против `preview_start server`: `adb reverse tcp:7313 tcp:7313` и ссылка
   `http://127.0.0.1:7313/#key=dev-key`. На `10.0.2.2:7313` quarkusDev отвечает 400 (чужой
   `Host`), а HTTP без TLS разрешён только `localhost`/`127.0.0.1` (`network_security_config.xml`).
